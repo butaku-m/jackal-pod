@@ -1,7 +1,7 @@
 name: JRA Auto Scraper Runner
 
 on:
-  workflow_dispatch: # これがあると手動でもいつでもテスト実行できるようになるよ！
+  workflow_dispatch: # 手動でもいつでもテスト実行できるようになるよ！
   schedule:
     # 毎週土曜日と日曜日の朝9:00 (日本時間) ＝ UTC 0:00 に自動実行
     - cron: '0 0 * * 6,0'
@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: setup-python@v5
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
