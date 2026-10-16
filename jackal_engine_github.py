@@ -9,9 +9,11 @@ import requests
 
 
 def run_jackal_engine(target_url):
-    # API初期化（環境変数から取得、なければフォールバック）
-    api_key = os.environ.get(
-        'GEMINI_API_KEY')
+    # API初期化（GitHubのSecretsから安全に取得）
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        raise ValueError('GEMINI_API_KEY が環境変数に設定されていません。')
+    
     client = genai.Client(api_key=api_key)
 
     # 1. プロンプトはリポジトリ内から読み込む
@@ -24,16 +26,17 @@ def run_jackal_engine(target_url):
         print(f'⚠️ 指定されたパスにファイルが見つかりません: {prompt_path}')
         jackal_prompt_instruction = 'あなたは競馬構造化・確率算出エンジンJACKALである。'
 
-    # 2. スクレイピング実行
+    # 2. スクレイピング実行（ブラウザ完全なりすましセッション＆リトライ強化）
     print(f'🕷️ スクレイピング実行中: {target_url}')
     session = requests.Session()
     headers = {
         'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,'
-            ' like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         ),
         'Accept': (
-            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
+            'text/html,application/xhtml+xml,application/xml;q=0.9,'
+            'image/avif,image/webp,image/apng,*/*;q=0.8'
         ),
         'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
         'Referer': 'https://www.jra.go.jp/',
@@ -47,7 +50,10 @@ def run_jackal_engine(target_url):
         raise Exception(f'接続エラーが発生しました: {e}')
 
     if response.status_code != 200:
-        raise Exception(f'HTTPエラー: {response.status_code}')
+        raise Exception(
+            f'HTTPエラー: {response.status_code} '
+            '(サイト側でアクセスが制限されているか、URLが無効です)'
+        )
 
     html_content = response.text
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -67,9 +73,11 @@ def run_jackal_engine(target_url):
             else:
                 date_m = re.search(r'(\d{1,2})月(\d{1,2})日', text)
                 if not date_m:
-                    raise ValueError('開催日を自動検出できませんでした。')
-                m, d = date_m.groups()
-                r_date = f'2026-{int(m):02d}-{int(d):02d}'
+                    # 見つからない場合は本日の日付をフォールバックとして使用
+                    r_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+                else:
+                    m, d = date_m.groups()
+                    r_date = f'2026-{int(m):02d}-{int(d):02d}'
 
         jra_baba_map = {
             '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京',
@@ -92,7 +100,7 @@ def run_jackal_engine(target_url):
                     break
 
         if not r_place:
-            r_place = '地方競馬' # フォールバック
+            r_place = '中央/地方競馬'
 
         r_race_no = None
         race_no_match = re.search(
@@ -155,13 +163,13 @@ def run_jackal_engine(target_url):
         f' {race_title}' + strict_output_instruction
     )
 
-    # 🚀 最新の3系モデル＆フォールバックリストに修正！
+    # 🚀 最新の3系モデル＆フォールバックリスト
     models_to_try = [
         'gemini-3.8-flash',
         'gemini-3.6-flash',
         'gemini-3.5-flash-lite',
     ]
-    
+
     api_response = None
     used_model = ''
 
@@ -184,5 +192,8 @@ def run_jackal_engine(target_url):
     if api_response is None:
         raise Exception('すべてのモデルでの生成に失敗しました。')
 
-    # 結果をテキストとして返す
-    return f'🎯 **JACKAL 予測結果** ({race_date} {race_title} / {used_model})\n\n{api_response.text}'
+    # 結果をテキストとして返す（Discord送信用）
+    return (
+        f'🎯 **JACKAL 予測結果** ({race_date} {race_title} / {used_model})\n\n'
+        f'{api_response.text}'
+    )
