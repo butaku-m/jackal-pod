@@ -171,11 +171,11 @@ def run_jackal_engine(target_url):
       f' {race_title}' + strict_output_instruction
   )
 
-  # 🚀 フォールバック＆自動リトライ付きモデル推論
+  # 🚀 現在確実に生きている最新モデルリストに修正！
   models_to_try = [
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash',
+      'gemini-3.8-flash',
+      'gemini-3.6-flash',
+      'gemini-3.5-flash-lite',
   ]
 
   api_response = None
@@ -203,14 +203,17 @@ def run_jackal_engine(target_url):
           print('⏳ サーバー混雑のため、5秒後に再試行します...')
           time.sleep(5)
         else:
-          break  # その他のエラーなら次のモデルへ
+          break  # 404などの致命的エラーなら即座に次のモデルへ
+
+    if success:
+      break
 
     if success:
       break
 
   if api_response is None:
     raise Exception(
-        'すべてのモデルでの生成に失敗しました（サーバー混雑の可能性があります）。'
+        'すべてのモデルでの生成に失敗しました（モデル不存在またはサーバー混雑の可能性があります）。'
     )
 
   return (
