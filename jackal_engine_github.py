@@ -162,8 +162,8 @@ def run_jackal_engine(target_url):
 
   strict_output_instruction = (
       '\n\n[STRICT OUTPUT FORMAT RULE]: '
-      '1. マークダウンのテーブルを出力する際は改行を入れ、崩れないようにすること。'
-      '2. 買い目セクションを絶対に省略せず、すべての組み合わせと資金配分率を完全に出力すること。'
+      '1. 出力には長大な出走表テーブルを含めないこと（表は省略し、結論に集中する）。'
+      '2. 軸馬、推奨買い目・資金配分、および投資根拠（Decision判定やEV構造）のみを明確に出力すること。'
   )
 
   execution_target = (
@@ -171,7 +171,7 @@ def run_jackal_engine(target_url):
       f' {race_title}' + strict_output_instruction
   )
 
-  # 🚀 現在確実に生きている最新モデルリストに修正！
+  # 🚀 モデル推論
   models_to_try = [
       'gemini-3.8-flash',
       'gemini-3.6-flash',
@@ -183,7 +183,7 @@ def run_jackal_engine(target_url):
 
   for model_name in models_to_try:
     success = False
-    for attempt in range(3):  # サーバー混雑対策として各モデル最大3回リトライ
+    for attempt in range(3):
       try:
         print(f'🔄 モデル [{model_name}] で推論中 (試行 {attempt + 1}/3)...')
         api_response = client.models.generate_content(
@@ -203,19 +203,17 @@ def run_jackal_engine(target_url):
           print('⏳ サーバー混雑のため、5秒後に再試行します...')
           time.sleep(5)
         else:
-          break  # 404などの致命的エラーなら即座に次のモデルへ
-
-    if success:
-      break
+          break
 
     if success:
       break
 
   if api_response is None:
     raise Exception(
-        'すべてのモデルでの生成に失敗しました（モデル不存在またはサーバー混雑の可能性があります）。'
+        'すべてのモデルでの生成に失敗しました（サーバー混雑の可能性があります）。'
     )
 
+  # 結果から「買い目・根拠」の部分を抽出しやすくフォーマット
   return (
       f'🎯 **JACKAL 予測結果** ({race_date} {race_title} / {used_model})\n\n'
       f'{api_response.text}'
