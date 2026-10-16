@@ -26,13 +26,12 @@ def send_discord_notification(message: str):
 def main():
   print('🧪 【テスト実行】URL直接指定モードで起動します')
 
-  # ==========================================
-  # 🎯 ここにテストしたい正確なJRA出馬表のURLを直接貼り付けてね！
-  # ==========================================
-test_race_urls = [
+  # テストしたいJRA出馬表のURL
+  test_race_urls = [
       'https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0108202604071120261018/30',
   ]
-  # もしURLが空欄のままだとエラーになるので、ダミーチェック
+
+  # ダミーチェック
   if not test_race_urls or test_race_urls[0] == '':
     print(
         '⚠️ テスト用のURLが `test_race_urls` に設定されていません。コード内のURLを書き換えてね！'
