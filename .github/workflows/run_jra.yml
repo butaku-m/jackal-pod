@@ -1,0 +1,31 @@
+name: JRA Auto Scraper Runner
+
+on:
+  workflow_dispatch: # これがあると手動でもいつでもテスト実行できるようになるよ！
+  schedule:
+    # 毎週土曜日と日曜日の UTC 0:00 (日本時間 朝9:00) に自動実行
+    - cron: '0 0 * * 6,0'
+
+jobs:
+  run-jra-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 pandas google-genai tabulate lxml
+
+      - name: Run main script
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python main_runner.py
