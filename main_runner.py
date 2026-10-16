@@ -31,10 +31,8 @@ def main():
   # ==========================================
   # 🎯 テストしたい正確なJRA出馬表のURLをここに直接入れる！
   # ==========================================
-  test_race_urls = [
-      # 例: 'https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0105...'
-      # 動かしたいJRAの正確な出馬表URLをここにダブルクォーテーションで囲んで入れてね
-  ]
+  test_race_urls = ['https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0108202604071120261018/30'
+    ]
 
   if not test_race_urls or test_race_urls[0] == '':
     print('⚠️ テスト用のURLが `test_race_urls` に設定されていません。')
