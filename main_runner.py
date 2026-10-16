@@ -28,7 +28,7 @@ def main():
 
   # テストしたいJRA出馬表のURL
   test_race_urls = [
-      'https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0108202604071120261018/30',
+      'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/16&k_babaCode=27&k_raceNo=1',
   ]
 
   # ダミーチェック
