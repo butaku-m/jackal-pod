@@ -31,7 +31,7 @@ def main():
   # ==========================================
   # 🎯 テストしたい正確なJRA出馬表のURLをここに直接入れる！
   # ==========================================
-  test_race_urls = ['https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0108202604071120261018/30'
+  test_race_urls = ["https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0108202604071120261018/30"
     ]
 
   if not test_race_urls or test_race_urls[0] == '':
