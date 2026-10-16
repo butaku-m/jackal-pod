@@ -29,7 +29,8 @@ def main():
   # ==========================================
   # 🎯 ここにテストしたい正確なJRA出馬表のURLを直接貼り付けてね！
   # ==========================================
-  test_race_urls =　[ "https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0108202604071120261018/30"
+test_race_urls = [
+      'https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0108202604071120261018/30',
   ]
   # もしURLが空欄のままだとエラーになるので、ダミーチェック
   if not test_race_urls or test_race_urls[0] == '':
