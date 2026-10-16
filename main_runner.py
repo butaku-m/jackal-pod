@@ -8,22 +8,26 @@ from jackal_engine_github import run_jackal_engine
 
 
 def send_discord_notification(message: str):
-  """DiscordのWebhookに通知を送る"""
+  """DiscordのWebhookに通知を送る（2000文字制限対策付き）"""
   webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
   if not webhook_url:
     print('⚠️ DISCORD_WEBHOOK_URL が設定されていません。')
     return
 
+  # Discordの文字数制限（2000文字）対策
+  if len(message) > 2000:
+    message = message[:1990] + '\n...(文字数オーバーのため省略)'
+
   payload = {'content': message}
   try:
     response = requests.post(webhook_url, json=payload)
+    # DiscordのWebhook成功時は 204 No Content が返るよ
     if response.status_code == 204:
       print('📤 Discordへの通知に成功しました！')
     else:
       print(f'❌ Discord通知失敗: ステータスコード {response.status_code}')
   except Exception as e:
     print(f'⚠️ Discord通知エラー: {e}')
-
 
 def main():
   print('🧪 【テスト実行】URL直接指定モードでJACKALエンジンを起動します...')
