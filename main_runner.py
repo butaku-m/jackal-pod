@@ -2,7 +2,6 @@ from datetime import datetime
 import os
 import re
 import time
-from bs4 import BeautifulSoup
 import requests
 
 # AIエンジン（軽量化・買い目＆根拠抽出型）をインポート
@@ -10,7 +9,7 @@ from jackal_engine_github import run_jackal_engine
 
 
 def send_discord_notification(message: str):
-  """DiscordのWebhookに通知を送る（長文化・AnalysisTable排除後の強制文字数ガード付き）"""
+  """DiscordのWebhookに通知を送る（1900文字強制ガード付き）"""
   webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
   if not webhook_url:
     print('⚠️ DISCORD_WEBHOOK_URL が設定されていません。')
@@ -19,13 +18,11 @@ def send_discord_notification(message: str):
   if not isinstance(message, str):
     message = str(message)
 
-  # 買い目が途中で切れないよう、AnalysisTableを削った上で安全に送信
-  cleaned_message = strip_analysis_table(message)
+  # 万が一1900文字を超えていた場合のみ末尾をカットしてガード
+  if len(message) > 1900:
+    message = message[:1850] + '\n\n...(※文字数制限超過のため省略)'
 
-  if len(cleaned_message) > 1900:
-    cleaned_message = cleaned_message[:1850] + '\n\n...(※文字数制限超過のため省略)'
-
-  payload = {'content': cleaned_message}
+  payload = {'content': message}
   try:
     response = requests.post(webhook_url, json=payload)
     if response.status_code == 204:
@@ -36,36 +33,8 @@ def send_discord_notification(message: str):
     print(f'⚠️ Discord通知エラー: {e}')
 
 
-def strip_analysis_table(text: str) -> str:
-  """長大なAnalysisTableやマークダウンの表をバッサリ削り、買い目と根拠だけを残すフィルター"""
-  lines = text.split('\n')
-  cleaned_lines = []
-  skip_flag = False
-
-  for line in lines:
-    # テーブルの始まりやAnalysisTable関連の見出し・記号があったらスキップ
-    if (
-        'AnalysisTable' in line
-        or '分析テーブル' in line
-        or '|---' in line
-        or '| 馬番' in line
-    ):
-      skip_flag = True
-      continue
-
-    # 空行が来たらテーブル終了とみなしてスキップ解除
-    if skip_flag and line.strip() == '':
-      skip_flag = False
-      continue
-
-    if not skip_flag:
-      cleaned_lines.append(line)
-
-  return '\n'.join(cleaned_lines)
-
-
 def auto_detect_race_info_from_url(url: str):
-  """URLから開催日・競馬場・レース番号をパースする（JRA/NAR完全分離版・札幌混同防止）"""
+  """URLから開催日・競馬場・レース番号をパースする（JRA/NAR完全分離版）"""
   jra_baba_map = {
       '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京',
       '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉',
@@ -80,7 +49,7 @@ def auto_detect_race_info_from_url(url: str):
   r_place = '競馬'
   r_race_no = '1'
 
-  # 1. JRA公式ドメインの処理（必ずドメインとCNAMEを確認して完全に分離）
+  # 1. JRA公式ドメインの処理
   if 'jra.go.jp' in url and 'CNAME=' in url:
     cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', url)
     if cname_match:
@@ -88,18 +57,16 @@ def auto_detect_race_info_from_url(url: str):
       if len(cname_str) >= 21:
         baba_cand = cname_str[9:11]
         r_place = jra_baba_map.get(baba_cand, 'JRA')
-        
         race_cand = cname_str[19:21]
         if race_cand.isdigit():
           r_race_no = str(int(race_cand))
-          
         if len(cname_str) >= 29:
           date_str = cname_str[21:29]
           if date_str.isdigit():
             r_date = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
     return r_date, f'{r_place}{r_race_no}R'
 
-  # 2. 地方競馬(NAR)等の処理（k_babaCodeなどを確実にキャッチして盛岡等を保護）
+  # 2. 地方競馬(NAR)等の処理
   baba_code_match = re.search(r'(?:k_babaCode|babaCode|ba)=(\d+)', url)
   if baba_code_match:
     raw_code = baba_code_match.group(1)
@@ -119,7 +86,6 @@ def auto_detect_race_info_from_url(url: str):
 
 def derive_12_race_urls(base_1r_url: str):
   """1RのURLを起点に1R〜12RのURL群を自動生成（JRA・地方両対応）"""
-  # JRAの場合
   if 'jra.go.jp' in base_1r_url and 'CNAME=' in base_1r_url:
     cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', base_1r_url)
     if not cname_match:
@@ -140,7 +106,6 @@ def derive_12_race_urls(base_1r_url: str):
       urls.append((race_no, new_url))
     return urls
 
-  # 地方競馬（NAR）などの場合（k_raceNo=1 などを置き換え）
   urls = []
   for race_no in range(1, 13):
     new_url = re.sub(r'(k_raceNo|raceNo|r_no|race_no|R_no)=\d+', f'k_raceNo={race_no}', base_1r_url)
@@ -152,10 +117,10 @@ def derive_12_race_urls(base_1r_url: str):
 
 
 def main():
-  print('🚀 JACKAL 中央＆地方対応・買い目特化型 一括バッチシステム起動！')
+  print('🚀 JACKAL 中央＆地方対応・一括バッチシステム起動！')
 
   # ★ここに検証したい開催日の「1RのURL」をペタッと貼る！
-  base_1r_url = 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_babaCode=24&k_raceNo=1'
+  base_1r_url = 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_babaCode=3&k_raceNo=1'
 
   if not base_1r_url or not base_1r_url.startswith('http'):
     print('⚠️ 有効な1RのURLを入力してください。')
@@ -181,10 +146,10 @@ def main():
       try:
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
-          # JACKALエンジンで解析＆推論実行
+          # JACKALエンジンで解析＆推論実行（エンジン側で自動テーブルカット＆盛岡誤判定防止）
           result_text = run_jackal_engine(url)
           
-          # Discordへ連投（AnalysisTable自動カット＆文字数ガード付き）
+          # Discordへ送信
           send_discord_notification(result_text)
           print(f'✅ 【{race_no}R】 送信完了！')
         else:
