@@ -1,0 +1,40 @@
+name: JACKAL Timed Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      race_url:
+        description: '対象レースのURL（出馬表ページなど）'
+        required: true
+        type: string
+        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_raceNo=1&k_babaCode=10'
+      minutes_before:
+        description: '何分前に通知するか (例: 10)'
+        required: true
+        type: string
+        default: '10'
+
+jobs:
+  run-timed-jackal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 pandas lxml google-genai
+
+      - name: Run Timed Runner Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RACE_URL: ${{ github.event.inputs.race_url }}
+          MINUTES_BEFORE: ${{ github.event.inputs.minutes_before }}
+        run: |
+          python timed_runner.py
