@@ -40,7 +40,7 @@ def run_jackal_engine(target_url):
           'image/avif,image/webp,image/apng,*/*;q=0.8'
       ),
       'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-      'Referer': 'https://www.jra.go.jp/',
+      'Referer': 'https://www.keiba.go.jp/',
       'Connection': 'keep-alive',
   }
 
@@ -60,8 +60,23 @@ def run_jackal_engine(target_url):
   soup = BeautifulSoup(html_content, 'html.parser')
   page_text = soup.get_text()
 
-  # 3. 日付・開催場・レース番号の自動抽出
+  # 3. 日付・開催場・レース番号の自動抽出（JRA/NAR完全分離・誤判定ブロック版）
   def auto_detect_race_info(text, url):
+    jra_baba_map = {
+        '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京',
+        '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉',
+    }
+    nar_baba_map = {
+        '36': '門別', '3': '帯広', '10': '盛岡', '11': '水沢', '18': '浦和',
+        '19': '船橋', '20': '大井', '21': '川崎', '22': '金沢', '23': '笠松',
+        '24': '名古屋', '27': '園田', '28': '姫路', '31': '高知', '32': '佐賀',
+    }
+
+    r_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    r_place = '競馬'
+    r_race_no = '1'
+
+    # 日付の抽出
     date_match = re.search(r'k_raceDate=(\d{4})/(\d{2})/(\d{2})', url)
     if date_match:
       y, m, d = date_match.groups()
@@ -71,60 +86,29 @@ def run_jackal_engine(target_url):
       if all_dates:
         y, m, d = all_dates[-1]
         r_date = f'{y}-{m}-{d}'
-      else:
-        date_m = re.search(r'(\d{1,2})月(\d{1,2})日', text)
-        if not date_m:
-          r_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        else:
-          m, d = date_m.groups()
-          r_date = f'2026-{int(m):02d}-{int(d):02d}'
 
-    jra_baba_map = {
-        '01': '札幌',
-        '02': '函館',
-        '03': '福島',
-        '04': '新潟',
-        '05': '東京',
-        '06': '中山',
-        '07': '中京',
-        '08': '京都',
-        '09': '阪神',
-        '10': '小倉',
-    }
-    r_place = None
-    if 'jra.go.jp' in url:
+    # JRAの判定
+    if 'jra.go.jp' in url and 'CNAME=' in url:
       cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', url)
       if cname_match:
         cname_str = cname_match.group(1)
-        for code in jra_baba_map.keys():
-          if code in cname_str:
-            r_place = jra_baba_map.get(code)
-            break
+        if len(cname_str) >= 21:
+          baba_cand = cname_str[9:11]
+          r_place = jra_baba_map.get(baba_cand, 'JRA')
+          race_cand = cname_str[19:21]
+          if race_cand.isdigit():
+            r_race_no = str(int(race_cand))
+      return r_date, f'{r_place}{r_race_no}R'
 
-    if not r_place:
-      for place in jra_baba_map.values():
-        if place in text:
-          r_place = place
-          break
+    # 地方競馬(NAR)の判定（k_babaCodeを最優先で取得し、Jraマップの混入を防ぐ）
+    baba_code_match = re.search(r'(?:k_babaCode|babaCode|ba)=(\d+)', url)
+    if baba_code_match:
+      raw_code = baba_code_match.group(1)
+      r_place = nar_baba_map.get(raw_code) or nar_baba_map.get(raw_code.zfill(2)) or '地方競馬'
 
-    if not r_place:
-      r_place = '中央/地方競馬'
-
-    r_race_no = None
-    race_no_match = re.search(
-        r'(?:k_raceNo|race_no|r_no|raceNo|R_no)=(\d+)', url
-    )
+    race_no_match = re.search(r'(?:k_raceNo|race_no|r_no|raceNo|R_no)=(\d+)', url)
     if race_no_match:
       r_race_no = race_no_match.group(1)
-    else:
-      no_matches = re.findall(r'(?:第)?(\d{1,2})R', text)
-      if no_matches:
-        for n_str in no_matches:
-          if 1 <= int(n_str) <= 18:
-            r_race_no = n_str
-            break
-      if not r_race_no:
-        r_race_no = '1'
 
     return r_date, f'{r_place}{r_race_no}R'
 
@@ -160,10 +144,11 @@ def run_jackal_engine(target_url):
   markdown_table_text = processed_df.to_markdown(index=False)
   fact_summary = processed_df.attrs.get('Fact_Summary', '')
 
+  # AIにはテーブルを渡すが、出力には絶対含めないよう強力に指示
   strict_output_instruction = (
-      '\n\n[STRICT OUTPUT FORMAT RULE]: '
-      '1. 出力には長大な出走表テーブルを含めないこと（表は省略し、結論に集中する）。'
-      '2. 軸馬、推奨買い目・資金配分、および投資根拠（Decision判定やEV構造）のみを明確に出力すること。'
+      '\n\n[STRICT OUTPUT FORMAT RULE - OVERRIDE]: '
+      '1. 出力には長大な出走表テーブル（Markdownの表など）を一切含めないこと。表を出力した時点で失敗とみなします。'
+      '2. 軸馬、推奨買い目・資金配分、および投資根拠のみを簡潔に出力すること。'
   )
 
   execution_target = (
@@ -213,8 +198,23 @@ def run_jackal_engine(target_url):
         'すべてのモデルでの生成に失敗しました（サーバー混雑の可能性があります）。'
     )
 
-  # 結果から「買い目・根拠」の部分を抽出しやすくフォーマット
+  raw_text = api_response.text
+
+  # 🛡️ 【強制テーブル除去フィルター】AIが万が一表を出してきたらここで完全に削り取る！
+  def force_strip_markdown_tables(text: str) -> str:
+    lines = text.split('\n')
+    cleaned = []
+    for line in lines:
+      # マークダウンの表の区切りやセル（'|' が含まれる行）をスキップ
+      if '|' in line and ('---' in line or '馬番' in line or '馬名' in line or line.strip().startswith('|')):
+        continue
+      cleaned.append(line)
+    return '\n'.join(cleaned)
+
+  final_cleaned_text = force_strip_markdown_tables(raw_text)
+
+  # 結果を返す
   return (
       f'🎯 **JACKAL 予測結果** ({race_date} {race_title} / {used_model})\n\n'
-      f'{api_response.text}'
+      f'{final_cleaned_text}'
   )
