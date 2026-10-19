@@ -80,14 +80,54 @@ def extract_race_time_from_html(html_content: str):
   return None, None
 
 
+def trigger_next_workflow(next_race_url, minutes_before):
+  """GitHub REST APIを使って、次のレースのURLを渡して自分自身のワークフローを再トリガーする"""
+  github_token = os.environ.get('GITHUB_TOKEN')
+  repository = os.environ.get('GITHUB_REPOSITORY')  # 例: "owner/repo-name"
+  
+  if not github_token or not repository:
+    print('⚠️ GITHUB_TOKEN または GITHUB_REPOSITORY が設定されていないため、セルフ・トリガーをスキップします。')
+    return False
+
+  # ※ ワークフローのファイル名に合わせて変更してください（例: timed_runner.yml）
+  workflow_file = 'timed_runner.yml'
+  api_url = f'https://api.github.com/repos/{repository}/actions/workflows/{workflow_file}/dispatches'
+
+  headers = {
+      'Authorization': f'Bearer {github_token}',
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+  }
+
+  payload = {
+      'ref': 'main',  # デフォルトブランチ名（main または master）
+      'inputs': {
+          'race_url': next_race_url,
+          'minutes_before': str(minutes_before),
+      },
+  }
+
+  try:
+    response = requests.post(api_url, headers=headers, json=payload)
+    if response.status_code == 204:
+      print('🚀 次のレースのセルフ・トリガー（予約）に成功しました！')
+      return True
+    else:
+      print(f'❌ セルフ・トリガー失敗: ステータスコード {response.status_code} - {response.text}')
+      return False
+  except Exception as e:
+    print(f'⚠️ セルフ・トリガー通信エラー: {e}')
+    return False
+
+
 def main():
-  print('⏱️ JACKAL 全レース対応タイムライン・スタンバイシステム起動（終了レーススキップ版）！')
+  print('⏱️ JACKAL セルフ・トリガー型 タイムライン・スタンバイシステム起動！')
 
   base_1r_url = os.environ.get('RACE_URL')
   minutes_before_str = os.environ.get('MINUTES_BEFORE', '10')
 
   if not base_1r_url:
-    print('⚠️ RACE_URL が設定されていません。')
+    print('⚠️ RACE_URL が設定されていないため終了します。')
     return
 
   minutes_before = int(minutes_before_str)
@@ -119,9 +159,9 @@ def main():
             r_datetime = now.replace(hour=r_hour, minute=r_minute, second=0, microsecond=0)
             target_time = r_datetime - timedelta(minutes=minutes_before)
             
-            # 【パッチ追加】すでに通知目標時刻を過ぎているレースはスキップ対象にする
+            # 既に通知目標時刻を過ぎているレースはスキップ
             if now > target_time:
-              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} （既に時刻を過ぎているためスキップします ⏭️）')
+              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} （既に時刻を過ぎているためスキップ ⏭️）')
             else:
               race_schedule.append({
                   'race_no': race_no,
@@ -129,7 +169,7 @@ def main():
                   'race_time': f'{r_hour:02d}:{r_minute:02d}',
                   'target_time': target_time
               })
-              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} (通知目標: {target_time.strftime("%H:%M")}) ✅ 待機対象')
+              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} (通知目標: {target_time.strftime("%H:%M")}) ✅ 対象')
           else:
             print(f'  - 【{race_no}R】 発走時刻が検出できませんでした（スキップ）')
         else:
@@ -140,34 +180,50 @@ def main():
       time.sleep(1)
 
     if not race_schedule:
-      print('❌ 本日これから実行すべき有効なレーススケジュールがありません（すべて終了済みの可能性があります）。終了します。')
+      print('❌ 本日これから実行すべき有効なレーススケジュールがありません。終了します。')
       return
 
-    print(f'\n🎯 合計 {len(race_schedule)} レースの監視スケジュールを設定しました。レース開催を待ちます...\n')
+    # 今回実行すべき「先頭の1レース」だけをピックアップ！
+    current_task = race_schedule.pop(0)
+    race_no = current_task['race_no']
+    url = current_task['url']
+    target_time = current_task['target_time']
 
-    # タイムラインに沿って監視・実行
-    while race_schedule:
-      now = datetime.now(jst)
-      
-      current_task = race_schedule[0]
-      target_time = current_task['target_time']
-      race_no = current_task['race_no']
-      url = current_task['url']
-      
-      if now >= target_time:
-        print(f'\n🚀 【{race_no}R】 発走{minutes_before}分前到達！JACKALエンジンを起動します...')
-        try:
-          result_text = run_jackal_engine(url)
-          send_discord_notification(result_text)
-          print(f'✅ 【{race_no}R】 予測＆Discord通知完了！')
-        except Exception as e:
-          print(f'❌ 【{race_no}R】 処理エラー: {e}')
-        
-        race_schedule.pop(0)
-      else:
-        time.sleep(30)
+    print(f'\n🎯 今回の実行ターゲット: 【{race_no}R】 (通知目標時刻: {target_time.strftime("%H:%M")})')
 
-    print('\n🎉 本日の対象レースのJACKAL予測・通知スケジュールがすべて完了しました！')
+    # 【重要】もし通知時刻より「早すぎるタイミング」で起動しちゃった場合の保険（数分なら軽く待つ、またはそのまま実行）
+    now = datetime.now(jst)
+    if now < target_time:
+      wait_seconds = (target_time - now).total_seconds()
+      # 15分以上早い場合は、無駄撃ちを防ぐために一度トリガーし直すか軽く待つが、
+      # 基本は直前にGitHub側でCronや手動で起こす想定なのでそのまま進めるか、数分なら待つ
+      if wait_seconds > 900: # 15分以上早い場合
+        print(f'⚠️ まだ通知時刻まで時間があります（残り {int(wait_seconds/60)} 分）。一度終了します。')
+        return
+      elif wait_seconds > 0:
+        print(f'⏳ 目標時刻まで {int(wait_seconds)} 秒あります。待機します...')
+        time.sleep(wait_seconds)
+
+    # 🚀 JACKALエンジン実行 ＆ Discord通知
+    print(f'\n🚀 【{race_no}R】 JACKALエンジンを起動します...')
+    try:
+      result_text = run_jackal_engine(url)
+      send_discord_notification(result_text)
+      print(f'✅ 【{race_no}R】 予測＆Discord通知完了！')
+    except Exception as e:
+      print(f'❌ 【{race_no}R】 処理エラー: {e}')
+
+    # 🔄 「次のレース」がまだ残っていれば、GitHub APIを使って自分自身を次のレースのURLで再トリガー！
+    if race_schedule:
+      next_task = race_schedule[0]
+      print(f'\n📦 次のレース 【{next_task["race_no"]}R】 があります。セルフ・トリガーを実行します...')
+      
+      # ※ 次のレースの「目標通知時刻」付近に自動起動させたい場合、
+      # GitHubのschedule（cron）と組み合わせるか、あるいは簡易的に「次のレースのURLを渡して即座に、または時間調整して」投げる。
+      # ここではシンプルに「次のレースのURL」を次のジョブに引き渡す！
+      trigger_next_workflow(next_task['url'], minutes_before)
+    else:
+      print('\n🎉 本日の全レースのスケジュールが完遂しました！お疲れ様です！')
 
   except Exception as e:
     print(f'⚠️ システムエラー: {e}')
