@@ -173,5 +173,5 @@ def main():
     print(f'⚠️ システムエラー: {e}')
 
 
-If __name__ == '__main__':
+if __name__ == '__main__':
   main()
