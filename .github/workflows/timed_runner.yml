@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       race_url:
-        description: '対象レースの1RのURL（DebaTableのもの）'
+        description: '対象レースのURL（DebaTableのもの）'
         required: true
         type: string
         default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_raceNo=1&k_babaCode=18'
@@ -17,6 +17,9 @@ on:
 jobs:
   run-timed-jackal:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write  # ← 自身を再トリガー(dispatch)するために絶対に必要！
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,11 +33,15 @@ jobs:
         run: |
           pip install requests beautifulsoup4 pandas lxml google-genai tabulate
 
-      - name: Run Timed Runner Script
+      - name: Run Self-Trigger Timed Runner Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           RACE_URL: ${{ github.event.inputs.race_url }}
           MINUTES_BEFORE: ${{ github.event.inputs.minutes_before }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # ← 自動発行されるトークンを渡す
+          GITHUB_REPOSITORY: ${{ github.repository }}  # ← "owner/repo" を自動取得
         run: |
           python -u timed_runner.py
+env:
+  
