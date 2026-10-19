@@ -43,5 +43,3 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}  # ← "owner/repo" を自動取得
         run: |
           python -u timed_runner.py
-env:
-  
