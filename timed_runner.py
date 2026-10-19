@@ -5,7 +5,7 @@ import time
 from bs4 import BeautifulSoup
 import requests
 
-# 既存のJACKALエンジン＆URL生成ロジックをインポート
+# 既存のJACKALエンジンをインポート
 from jackal_engine_github import run_jackal_engine
 
 
@@ -70,10 +70,14 @@ def extract_race_time_from_html(html_content: str):
   soup = BeautifulSoup(html_content, 'html.parser')
   text = soup.get_text()
 
+  # 「発走 14:35」や「14:35発走」などのパターンを正規表現で探す
   time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
   if time_match:
     hour, minute = time_match.groups()
-    return int(hour), int(minute)
+    h, m = int(hour), int(minute)
+    # 常識的な競馬の発走時間帯（例: 10:00 〜 21:00）に絞ることで誤検出を防ぐ
+    if 9 <= h <= 21 and 0 <= m <= 59:
+      return h, m
   
   return None, None
 
@@ -144,14 +148,13 @@ def main():
     while race_schedule:
       now = datetime.now(jst)
       
-      # まだ実行していない先頭のレースを確認
       current_task = race_schedule[0]
       target_time = current_task['target_time']
       race_no = current_task['race_no']
       url = current_task['url']
       
       if now >= target_time:
-        print(f'\n🚀 【{race_no}R】 発走{minutes_before}前到達！JACKALエンジンを起動します...')
+        print(f'\n🚀 【{race_no}R】 発走{minutes_before}分前到達！JACKALエンジンを起動します...')
         try:
           result_text = run_jackal_engine(url)
           send_discord_notification(result_text)
@@ -159,10 +162,9 @@ def main():
         except Exception as e:
           print(f'❌ 【{race_no}R】 処理エラー: {e}')
         
-        # 処理が終わったレースをリストから削除
         race_schedule.pop(0)
       else:
-        # 次の判定まで少し待機（例: 30秒ごとに時刻をチェック）
+        # 次の判定まで30秒ごとに時刻をチェック
         time.sleep(30)
 
     print('\n🎉 本日の全レースのJACKAL予測・通知スケジュールが完了しました！')
