@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import re
 import time
 from bs4 import BeautifulSoup
 import requests
 
-# AIエンジン（表なし軽量化・買い目＆根拠抽出版）をインポート
+# AIエンジン（軽量化・買い目＆根拠抽出型）をインポート
 from jackal_engine_github import run_jackal_engine
 
 
@@ -33,159 +33,108 @@ def send_discord_notification(message: str):
     print(f'⚠️ Discord通知エラー: {e}')
 
 
-def parse_race_time_from_html(html_content):
-  """JRAのページHTMLから発走時刻（例: 15:40）を抽出する"""
-  soup = BeautifulSoup(html_content, 'html.parser')
-  page_text = soup.get_text()
-
-  # 「15時40分」のような形式を探す
-  time_match = re.search(r'(\d{1,2})時(\d{2})分', page_text)
-  if time_match:
-    h, m = time_match.groups()
-    return f'{int(h):02d}:{int(m):02d}'
-
-  # 「15:40」のような形式を探す
-  time_match_alt = re.search(r'([0-2]\d:[0-5]\d)', page_text)
-  if time_match_alt:
-    return time_match_alt.group(1)
-
-  return '15:00'  # 万が一見つからない場合のデフォルト
-
-
-def screening_jra_races(target_date: str, venue_code: str = '05'):
-  """指定した開催日（YYYYMMDD）と競馬場コードをもとに、
-
-  1R〜12RのURLを自動生成し、発走時刻も含めてスクリーニングする関数
-  """
-  headers = {
-      'User-Agent': (
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,'
-          ' like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      )
+def auto_detect_race_info_from_url(url: str):
+  """URLから開催日・競馬場・レース番号をパースする（100点満点ロジック）"""
+  jra_baba_map = {
+      '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京',
+      '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉',
   }
+  
+  if 'jra.go.jp' in url and 'CNAME=' in url:
+    cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', url)
+    if cname_match:
+      cname_str = cname_match.group(1)
+      if len(cname_str) >= 21:
+        baba_cand = cname_str[9:11]
+        r_place = jra_baba_map.get(baba_cand, 'JRA')
+        
+        race_cand = cname_str[19:21]
+        r_race_no = str(int(race_cand)) if race_cand.isdigit() else '1'
+        
+        r_date = '不明'
+        if len(cname_str) >= 29:
+          date_str = cname_str[21:29]
+          if date_str.isdigit():
+            r_date = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
+            
+        return r_date, f'{r_place}{r_race_no}R'
+  
+  return '不明', 'JRAレース'
 
-  venue_map = {
-      '01': '札幌',
-      '02': '函館',
-      '03': '福島',
-      '04': '新潟',
-      '05': '東京',
-      '06': '中山',
-      '07': '中京',
-      '08': '京都',
-      '09': '阪神',
-      '10': '小倉',
-  }
-  venue_name = venue_map.get(venue_code, '中央競馬')
-  formatted_date = f'{target_date[:4]}-{target_date[4:6]}-{target_date[6:]}'
 
-  print(
-      f'🔍 開催日: {formatted_date} / 競馬場: {venue_name} (コード:{venue_code})'
-      ' のレースをスクリーニング中...\n'
-  )
+def derive_12_race_urls(base_1r_url: str):
+  """1RのURLのCNAME(インデックス19:21)を書き換えて1R〜12RのURL群を自動生成"""
+  cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', base_1r_url)
+  if not cname_match:
+    raise ValueError('URLにCNAMEが含まれていません。')
 
-  valid_races = []
+  cname_str = cname_match.group(1)
+  if len(cname_str) < 21:
+    raise ValueError('CNAME文字列の長さが足りません。')
+
+  urls = []
+  prefix = cname_str[:19]
+  suffix = cname_str[21:]
 
   for race_no in range(1, 13):
-    race_no_str = f'{race_no:02d}'
+    race_str = f'{race_no:02d}'
+    new_cname = f'{prefix}{race_str}{suffix}'
+    new_url = base_1r_url.replace(cname_str, new_cname)
+    urls.append((race_no, new_url))
 
-    # あなたが検証して12Rしっかり拾えた確実なURL組み立てロジック！
-    base_prefix = 'pw01dde01'
-    cname = f'{base_prefix}{venue_code}20260406{race_no_str}{target_date}/D0'
-    url = f'https://www.jra.go.jp/JRADB/accessD.html?CNAME={cname}'
-
-    try:
-      response = requests.get(url, headers=headers, timeout=5)
-
-      if response.status_code == 200:
-        if (
-            'レース番組が見つかりません' not in response.text
-            and len(response.text) > 2000
-        ):
-          # 発走時刻をHTMLから取得
-          race_time = parse_race_time_from_html(response.text)
-          race_title = f'{venue_name}{race_no}R'
-          target_dt_str = f'{formatted_date} {race_time}'
-          target_datetime = datetime.strptime(target_dt_str, '%Y-%m-%d %H:%M')
-
-          valid_races.append({
-              'date': formatted_date,
-              'venue': venue_name,
-              'race_no': race_no,
-              'title': race_title,
-              'url': url,
-              'race_time': race_time,
-              'target_datetime': target_datetime,
-              'executed': False,
-          })
-          print(
-              f'✅ 【有効】 {race_no}R (発走: {race_time}):'
-              f' https://www.jra.go.jp/JRADB/accessD.html?CNAME={cname}'
-          )
-        else:
-          print(f'⏩ 【無効・存在せず】 {race_no}R')
-      else:
-        print(f'❌ 【HTTPエラー {response.status_code}】 {race_no}R')
-
-    except Exception as e:
-      print(f'⚠️ 【通信エラー】 {race_no}R: {e}')
-
-  return valid_races
+  return urls
 
 
 def main():
-  print('🚀 JRA全自動レーシング・タイマーシステム起動！')
+  print('🚀 JACKAL 1R起点一括バッチシステム起動！')
 
-  # 対象の日付と競馬場コード（必要に応じて変更可能）
-  target_date = '20261017'
-  venue_code = '05'  # 東京
+  # ★ここに開催日の「1RのURL」をペタッと貼るだけ！
+  base_1r_url = 'https://www.jra.go.jp/JRADB/accessD.html?CNAME=pw01dde0105202604060120261017/D0'
 
-  # 1. 確実なロジックで全レースをスクリーニング
-  races = screening_jra_races(target_date, venue_code)
-  print(f'\n🎯 有効なレースURL発見数: {len(races)}件\n')
-
-  if not races:
-    print('⚠️ 有効なレースが見つかりませんでした。')
+  if not base_1r_url or 'CNAME=' not in base_1r_url:
+    print('⚠️ 有効な1RのURLを入力してください。')
     return
 
-  print(
-      '⏳ 各レースの「発走30分前」に向けた監視ループに入ります……（GitHub'
-      ' Actions上ではタイムアウトに注意）\n'
-  )
+  try:
+    r_date, r_title = auto_detect_race_info_from_url(base_1r_url)
+    print(f'🎯 【起点URL検知】 日付: {r_date} / 基準レース: {r_title}')
+    
+    # 1R〜12RのURLを一気に自動展開
+    race_list = derive_12_race_urls(base_1r_url)
+    print(f'🔗 1R〜12RのURL生成完了！（全{len(race_list)}レース）\n')
 
-  # 2. タイマー監視ループ
-  while True:
-    now = datetime.now()
-    all_done = True
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    }
 
-    for race in races:
-      if race['executed']:
-        continue
-
-      all_done = False
-      # 発走の30分前を計算
-      trigger_time = race['target_datetime'] - timedelta(minutes=30)
-
-      if now >= trigger_time and now < race['target_datetime']:
-        print(
-            f"\n🚨 【発走30分前到達】 {race['title']} のJACKALエンジンを起動します！"
-        )
-
+    # 1Rから12Rまで順番に推論＆Discord送信
+    for race_no, url in race_list:
+      print(f'🏁 【{race_no}R】 スレイピング＆JACKAL推論中...')
+      
+      # ページの存在チェック（無効なレースはスキップ）
+      resp = requests.get(url, headers=headers, timeout=5)
+      if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
         try:
-          result_text = run_jackal_engine(race['url'])
+          # JACKALエンジンで解析＆推論実行
+          result_text = run_jackal_engine(url)
+          
+          # Discordへ連投
           send_discord_notification(result_text)
+          print(f'✅ 【{race_no}R】 送信完了！')
         except Exception as e:
-          err_msg = f"❌ {race['title']} 処理エラー: {str(e)}"
+          err_msg = f'❌ 【{race_no}R】 推論・送信エラー: {e}'
           print(err_msg)
           send_discord_notification(err_msg)
+      else:
+        print(f'⏩ 【{race_no}R】 番組なし（スキップ）')
 
-        race['executed'] = True
+      # 連続アクセス対策のウェイト
+      time.sleep(3)
 
-    if all_done:
-      print('🎉 本日の監視レースの処理がすべて完了しました！システムを終了します。')
-      break
+    print('\n🎉 全レースのJACKAL予測＆Discord通知が完了しました！')
 
-    time.sleep(30)
+  except Exception as e:
+    print(f'⚠️ システムエラー: {e}')
 
 
 if __name__ == '__main__':
