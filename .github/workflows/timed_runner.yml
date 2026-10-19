@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       race_url:
-        description: '対象レースのURL（DebaTableのもの）'
+        description: '対象レースのURL'
         required: true
         type: string
         default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_raceNo=1&k_babaCode=18'
       minutes_before:
-        description: '何分前に通知するか (例: 10)'
+        description: '何分前に通知するか'
         required: true
         type: string
         default: '10'
@@ -21,18 +21,13 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: Install dependencies
         run: pip install requests beautifulsoup4 pandas lxml google-genai tabulate
-
-      - name: Run Self-Trigger Timed Runner Script
+      - name: Run Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
