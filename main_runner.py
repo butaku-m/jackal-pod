@@ -89,7 +89,7 @@ def main():
   print('🚀 JACKAL 1R起点一括バッチシステム起動！')
 
   # ★ここに開催日の「1RのURL」をペタッと貼るだけ！
-  base_1r_url = 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F19&k_babaCode=18&k_raceNo=1'
+  base_1r_url = 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_raceNo=1&k_babaCode=10'
 
   if not base_1r_url or 'CNAME=' not in base_1r_url:
     print('⚠️ 有効な1RのURLを入力してください。')
