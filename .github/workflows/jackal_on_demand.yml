@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       race_url:
-        description: '対象レースのURL（出馬表ページなど）'
+        description: '対象レースの1RのURL（DebaTableのもの）'
         required: true
         type: string
-        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_raceNo=1&k_babaCode=10'
+        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026/10/19&k_raceNo=1&k_babaCode=18'
       minutes_before:
         description: '何分前に通知するか (例: 10)'
         required: true
@@ -28,7 +28,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 pandas lxml google-genai
+          pip install requests beautifulsoup4 pandas lxml google-genai tabulate
 
       - name: Run Timed Runner Script
         env:
