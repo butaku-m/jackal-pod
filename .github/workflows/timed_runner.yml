@@ -18,7 +18,7 @@ jobs:
   run-timed-jackal:
     runs-on: ubuntu-latest
     permissions:
-      actions: write  # ← 自身を再トリガー(dispatch)するために絶対に必要！
+      actions: write
       contents: read
     steps:
       - name: Checkout repository
@@ -30,8 +30,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: |
-          pip install requests beautifulsoup4 pandas lxml google-genai tabulate
+        run: pip install requests beautifulsoup4 pandas lxml google-genai tabulate
 
       - name: Run Self-Trigger Timed Runner Script
         env:
@@ -39,7 +38,6 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           RACE_URL: ${{ github.event.inputs.race_url }}
           MINUTES_BEFORE: ${{ github.event.inputs.minutes_before }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # ← 自動発行されるトークンを渡す
-          GITHUB_REPOSITORY: ${{ github.repository }}  # ← "owner/repo" を自動取得
-        run: |
-          python -u timed_runner.py
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python -u timed_runner.py
