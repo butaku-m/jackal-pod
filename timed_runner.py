@@ -70,12 +70,10 @@ def extract_race_time_from_html(html_content: str):
   soup = BeautifulSoup(html_content, 'html.parser')
   text = soup.get_text()
 
-  # 「発走 14:35」や「14:35発走」などのパターンを正規表現で探す
   time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
   if time_match:
     hour, minute = time_match.groups()
     h, m = int(hour), int(minute)
-    # 常識的な競馬の発走時間帯（例: 10:00 〜 21:00）に絞ることで誤検出を防ぐ
     if 9 <= h <= 21 and 0 <= m <= 59:
       return h, m
   
@@ -83,7 +81,7 @@ def extract_race_time_from_html(html_content: str):
 
 
 def main():
-  print('⏱️ JACKAL 全レース対応タイムライン・スタンバイシステム起動！')
+  print('⏱️ JACKAL 全レース対応タイムライン・スタンバイシステム起動（終了レーススキップ版）！')
 
   base_1r_url = os.environ.get('RACE_URL')
   minutes_before_str = os.environ.get('MINUTES_BEFORE', '10')
@@ -104,31 +102,34 @@ def main():
   }
 
   try:
-    # 1. 1R〜12RのURLを自動展開
     race_urls = derive_12_race_urls(base_1r_url)
     print(f'🔗 1R〜12RのURL生成完了（全{len(race_urls)}レース）')
 
     jst = timezone(timedelta(hours=9))
+    now = datetime.now(jst)
     race_schedule = []
 
-    print('🕷️ 各レースの発走時刻をスキャン中...')
+    print('🕷️ 各レースの発走時刻をスキャン＆過去レース判定中...')
     for race_no, url in race_urls:
       try:
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
           r_hour, r_minute = extract_race_time_from_html(resp.text)
           if r_hour is not None and r_minute is not None:
-            now = datetime.now(jst)
             r_datetime = now.replace(hour=r_hour, minute=r_minute, second=0, microsecond=0)
             target_time = r_datetime - timedelta(minutes=minutes_before)
             
-            race_schedule.append({
-                'race_no': race_no,
-                'url': url,
-                'race_time': f'{r_hour:02d}:{r_minute:02d}',
-                'target_time': target_time
-            })
-            print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} (通知目標: {target_time.strftime("%H:%M")})')
+            # 【パッチ追加】すでに通知目標時刻を過ぎているレースはスキップ対象にする
+            if now > target_time:
+              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} （既に時刻を過ぎているためスキップします ⏭️）')
+            else:
+              race_schedule.append({
+                  'race_no': race_no,
+                  'url': url,
+                  'race_time': f'{r_hour:02d}:{r_minute:02d}',
+                  'target_time': target_time
+              })
+              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} (通知目標: {target_time.strftime("%H:%M")}) ✅ 待機対象')
           else:
             print(f'  - 【{race_no}R】 発走時刻が検出できませんでした（スキップ）')
         else:
@@ -139,12 +140,12 @@ def main():
       time.sleep(1)
 
     if not race_schedule:
-      print('❌ 有効なレーススケジュールが見つかりませんでした。終了します。')
+      print('❌ 本日これから実行すべき有効なレーススケジュールがありません（すべて終了済みの可能性があります）。終了します。')
       return
 
     print(f'\n🎯 合計 {len(race_schedule)} レースの監視スケジュールを設定しました。レース開催を待ちます...\n')
 
-    # 2. タイムラインに沿って各レースの通知タイミングを監視・実行
+    # タイムラインに沿って監視・実行
     while race_schedule:
       now = datetime.now(jst)
       
@@ -164,14 +165,13 @@ def main():
         
         race_schedule.pop(0)
       else:
-        # 次の判定まで30秒ごとに時刻をチェック
         time.sleep(30)
 
-    print('\n🎉 本日の全レースのJACKAL予測・通知スケジュールが完了しました！')
+    print('\n🎉 本日の対象レースのJACKAL予測・通知スケジュールがすべて完了しました！')
 
   except Exception as e:
     print(f'⚠️ システムエラー: {e}')
 
 
-if __name__ == '__main__':
+If __name__ == '__main__':
   main()
