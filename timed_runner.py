@@ -4,6 +4,7 @@ import re
 import time
 from bs4 import BeautifulSoup
 import requests
+from urllib.parse import urljoin
 
 # 既存のJACKALエンジンをインポート
 from jackal_engine_github import run_jackal_engine
@@ -69,23 +70,21 @@ def auto_detect_race_info_from_url(url: str):
   r_place = '競馬'
   r_race_no = '1'
 
-  # 1. JRA公式ドメインの処理
+  # 1. JRA公式ドメインの処理（君の成功ルールをそのまま使用）
   if 'jra.go.jp' in url and 'CNAME=' in url:
     cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', url)
     if cname_match:
-      cname_str = cname_match.group(1)
-      if len(cname_str) >= 11:
-        baba_cand = cname_str[9:11]
+      c_str = cname_match.group(1)
+      if len(c_str) >= 11:
+        baba_cand = c_str[9:11]
         r_place = jra_baba_map.get(baba_cand, 'JRA')
-      digits_8 = re.findall(r'\d{8}', cname_str)
-      if digits_8:
-        d_idx = cname_str.rfind(digits_8[-1])
-        if d_idx >= 2:
-          race_cand = cname_str[d_idx - 2 : d_idx]
-          if race_cand.isdigit():
-            r_race_no = str(int(race_cand))
-        r_date = digits_8[-1]
-        r_date = f'{r_date[:4]}-{r_date[4:6]}-{r_date[6:]}'
+      if len(c_str) >= 10:
+        race_cand = c_str[-10:-8]
+        if race_cand.isdigit():
+          r_race_no = str(int(race_cand))
+      link_date = c_str[-8:]
+      if len(link_date) == 8 and link_date.isdigit():
+        r_date = f'{link_date[:4]}-{link_date[4:6]}-{link_date[6:]}'
     return r_date, f'{r_place}{r_race_no}R'
 
   # 2. 地方競馬(NAR)等の処理
@@ -111,7 +110,7 @@ def auto_detect_race_info_from_url(url: str):
 
 
 def fetch_jra_race_links_from_base(base_url: str):
-  """【JRA絶対ベース】任意のJRAレースURLを起点に、同日・同場の1R〜12R直リンクを完璧に収穫する"""
+  """君が検証して大成功した、完全なJRAリンク収穫コードそのまま"""
   headers = {
       'User-Agent': (
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -125,6 +124,7 @@ def fetch_jra_race_links_from_base(base_url: str):
 
   base_cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', base_url)
   if not base_cname_match:
+    print('⚠️ 起点URLにCNAMEが含まれていません。')
     return []
 
   base_cname = base_cname_match.group(1)
@@ -153,16 +153,18 @@ def fetch_jra_race_links_from_base(base_url: str):
           if link_date == target_date and link_baba == target_baba:
             collected_links.add(full_url)
 
-    return sorted(list(collected_links))
+    unique_links = sorted(list(collected_links))
+    return unique_links
+
   except Exception as e:
-    print(f'⚠️ JRAリンク収穫エラー: {e}')
+    print(f'⚠️ スクレイピングエラー: {e}')
     return []
 
 
 def derive_12_race_urls(base_url: str):
-  """JRAなら絶対インデクサー、地方(NAR)なら従来の置換ロジックを使って1R〜12RのURL群を返す"""
+  """JRAなら君の成功コードを使用、地方(NAR)なら従来の置換ロジック"""
   if 'jra.go.jp' in base_url and 'CNAME=' in base_url:
-    print('🐎 JRA公式ドメインを検知：絶対インデクサーで全レースリンクを収穫します...')
+    print('🐎 JRA公式ドメインを検知：検証済みインデクサーで全レースリンクを収穫します...')
     race_urls = fetch_jra_race_links_from_base(base_url)
     formatted_urls = []
     for link in race_urls:
@@ -170,14 +172,14 @@ def derive_12_race_urls(base_url: str):
       race_no = 99
       if c_match:
         c_str = c_match.group(1)
-        digits_8 = re.findall(r'\d{8}', c_str)
-        if digits_8:
-          d_idx = c_str.rfind(digits_8[-1])
-          if d_idx >= 2 and c_str[d_idx - 2 : d_idx].isdigit():
-            race_no = int(c_str[d_idx - 2 : d_idx])
+        if len(c_str) >= 10:
+          race_no_str = c_str[-10:-8]
+          if race_no_str.isdigit():
+            race_no = int(race_no_str)
       formatted_urls.append((race_no, link))
     return sorted(formatted_urls, key=lambda x: x[0])
 
+  # 地方競馬(NAR)等の処理
   urls = []
   for race_no in range(1, 13):
     new_url = re.sub(
@@ -193,21 +195,20 @@ def derive_12_race_urls(base_url: str):
 
 
 def extract_race_time_from_html(html_content: str):
-  """ページ内のHTMLから発走時刻（例: '14:35'）を抽出する（JRAの「発走時刻：XX時XX分」にも完全対応）"""
+  """君が検証して大成功したJRA時刻パーサーをそのまま組み込み"""
   soup = BeautifulSoup(html_content, 'html.parser')
   text = soup.get_text(' ', strip=True)
 
-  # 1行に完全に収めたJRA用正規表現
-  time_match_jra = re.search(r'発走時刻[：:]\s*(\d{1,2})時(\d{1,2})分', text)
-  if time_match_jra:
-    hour, minute = time_match_jra.groups()
+  time_match = re.search(r'発走時刻[：:]\s*(\d{1,2})時(\d{1,2})分', text)
+  if time_match:
+    hour, minute = time_match.groups()
     h, m = int(hour), int(minute)
     if 0 <= h <= 23 and 0 <= m <= 59:
       return h, m
 
-  time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
-  if time_match:
-    hour, minute = time_match.groups()
+  time_match_fallback = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
+  if time_match_fallback:
+    hour, minute = time_match_fallback.groups()
     h, m = int(hour), int(minute)
     if 9 <= h <= 21 and 0 <= m <= 59:
       return h, m
@@ -263,128 +264,4 @@ def main():
   print('⏱️ JACKAL セルフ・トリガー型 タイムライン・スタンバイシステム起動！')
 
   base_1r_url = os.environ.get('RACE_URL')
-  minutes_before_str = os.environ.get('MINUTES_BEFORE', '10')
-
-  if not base_1r_url:
-    print('⚠️ RACE_URL が設定されていないため終了します。')
-    return
-
-  minutes_before = int(minutes_before_str)
-
-  r_date, r_title = auto_detect_race_info_from_url(base_1r_url)
-  print(f'🎯 【対象開催検知】 日付: {r_date} / 基準レース: {r_title}')
-  print(f'🔗 起点URL: {base_1r_url}')
-  print(f'⏳ 設定: 各レースの {minutes_before} 分前に通知します\n')
-
-  headers = {
-      'User-Agent': (
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          ' (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      ),
-      'Accept': (
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-      ),
-      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-      'Connection': 'keep-alive',
-  }
-
-  try:
-    race_urls = derive_12_race_urls(base_1r_url)
-    print(f'🔗 1R〜12RのURL生成完了（全{len(race_urls)}レース）')
-
-    jst = timezone(timedelta(hours=9))
-    now = datetime.now(jst)
-    race_schedule = []
-
-    print('🕷️ 各レースの発走時刻をスキャン＆過去レース判定中...')
-    for race_no, url in race_urls:
-      try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.encoding = resp.apparent_encoding
-
-        if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
-          r_hour, r_minute = extract_race_time_from_html(resp.text)
-          if r_hour is not None and r_minute is not None:
-            r_datetime = now.replace(
-                hour=r_hour, minute=r_minute, second=0, microsecond=0
-            )
-            target_time = r_datetime - timedelta(minutes=minutes_before)
-
-            if now > target_time:
-              print(
-                  f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d}'
-                  ' （既に時刻を過ぎているためスキップ ⏭️）'
-              )
-            else:
-              race_schedule.append({
-                  'race_no': race_no,
-                  'url': url,
-                  'race_time': f'{r_hour:02d}:{r_minute:02d}',
-                  'target_time': target_time,
-              })
-              print(
-                  f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d}'
-                  f' (通知目標: {target_time.strftime("%H:%M")}) ✅ 対象'
-              )
-          else:
-            print(
-                f'  - 【{race_no}R】 発走時刻が検出できませんでした（スキップ）'
-            )
-        else:
-          print(f'  - 【{race_no}R】 開催なし（スキップ）')
-      except Exception as e:
-        print(f'  - 【{race_no}R】 取得エラー: {e}')
-
-      time.sleep(1)
-
-    if not race_schedule:
-      print(
-          '❌ 本日これから実行すべき有効なレーススケジュールがありません。終了します。'
-      )
-      return
-
-    current_task = race_schedule.pop(0)
-    race_no = current_task['race_no']
-    url = current_task['url']
-    target_time = current_task['target_time']
-
-    print(
-        f'\n🎯 今回の実行ターゲット: 【{race_no}R】 (通知目標時刻:'
-        f' {target_time.strftime("%H:%M")})'
-    )
-
-    now = datetime.now(jst)
-    if now < target_time:
-      wait_seconds = (target_time - now).total_seconds()
-      print(
-          f'⏳ 目標時刻まで {int(wait_seconds)} 秒（約'
-          f' {int(wait_seconds / 60)} 分）待機します...'
-      )
-      time.sleep(wait_seconds)
-    else:
-      print('⚠️ すでに目標時刻を過ぎているため、すぐに実行します！')
-
-    print(f'\n🚀 【{race_no}R】 JACKALエンジンを起動します...')
-    try:
-      result_text = run_jackal_engine(url)
-      send_discord_notification(result_text)
-      print(f'✅ 【{race_no}R】 予測＆Discord通知完了！')
-    except Exception as e:
-      print(f'❌ 【{race_no}R】 処理エラー: {e}')
-
-    if race_schedule:
-      next_task = race_schedule[0]
-      print(
-          f'\n📦 次のレース 【{next_task["race_no"]}R】'
-          ' があります。セルフ・トリガーを実行します...'
-      )
-      trigger_next_workflow(next_task['url'], minutes_before)
-    else:
-      print('\n🎉 本日の全レースのスケジュールが完遂しました！お疲れ様です！')
-
-  except Exception as e:
-    print(f'⚠️ システムエラー: {e}')
-
-
-if __name__ == '__main__':
-  main()
+  minutes_before_str = os.environ.get
