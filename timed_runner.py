@@ -147,17 +147,21 @@ def derive_12_race_urls(base_1r_url: str):
 def extract_race_time_from_html(html_content: str):
   """ページ内のHTMLから発走時刻（例: '14:35'）を抽出する"""
   soup = BeautifulSoup(html_content, 'html.parser')
+
+  # 💡 デバッグ用：取得したHTMLの最初の500文字をログに出してみる
+  print('--- HTML DEBUG START ---')
+  print(soup.get_text()[:500])
+  print('--- HTML DEBUG END ---')
+
   text = soup.get_text()
 
-  # 「発走 14:35」や「14:35発走」などのパターンを正規表現で探す
   time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
   if time_match:
     hour, minute = time_match.groups()
     h, m = int(hour), int(minute)
-    # 常識的な競馬の発走時間帯（例: 10:00 〜 21:00）に絞ることで誤検出を防ぐ
     if 9 <= h <= 21 and 0 <= m <= 59:
       return h, m
-  
+
   return None, None
 
 
