@@ -77,7 +77,6 @@ def auto_detect_race_info_from_url(url: str):
       if len(cname_str) >= 11:
         baba_cand = cname_str[9:11]
         r_place = jra_baba_map.get(baba_cand, 'JRA')
-      # Cname構造からレース番号を安全に抽出（末尾日付の直前2桁、または19〜21文字目付近）
       digits_8 = re.findall(r'\d{8}', cname_str)
       if digits_8:
         d_idx = cname_str.rfind(digits_8[-1])
@@ -177,10 +176,8 @@ def derive_12_race_urls(base_url: str):
           if d_idx >= 2 and c_str[d_idx - 2 : d_idx].isdigit():
             race_no = int(c_str[d_idx - 2 : d_idx])
       formatted_urls.append((race_no, link))
-    # レース番号順にソート
     return sorted(formatted_urls, key=lambda x: x[0])
 
-  # 地方競馬(NAR)等の処理
   urls = []
   for race_no in range(1, 13):
     new_url = re.sub(
@@ -200,131 +197,4 @@ def extract_race_time_from_html(html_content: str):
   soup = BeautifulSoup(html_content, 'html.parser')
   text = soup.get_text(' ', strip=True)
 
-  # JRA特有の「発走時刻：XX時XX分」パターンを最優先でキャッチ
-  time_match_jra = re.search(r'発走時刻[：:]\s*(\d{1,2})時(\d{1,2})分', text)
-  if time_match_jra:
-    hour, minute = time_match_jra.groups()
-    h, m = int(hour), int(minute)
-    if 0 <= h <= 23 and 0 <= m <= 59:
-      return h, m
-
-  # 一般的な時刻パターン (HH:MM)
-  time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
-  if time_match:
-    hour, minute = time_match.groups()
-    h, m = int(hour), int(minute)
-    if 9 <= h <= 21 and 0 <= m <= 59:
-      return h, m
-
-  return None, None
-
-
-def trigger_next_workflow(next_race_url, minutes_before):
-  """GitHub REST APIを使って、次のレースのURLを渡して自分自身のワークフローを再トリガーする"""
-  github_token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_PAT')
-  repository = os.environ.get('GITHUB_REPOSITORY')
-
-  if not github_token or not repository:
-    print(
-        '⚠️ GITHUB_TOKEN または GITHUB_REPOSITORY が設定されていないため、セルフ・トリガーをスキップします。'
-    )
-    return False
-
-  workflow_file = 'timed_runner.yml'
-  api_url = f'https://api.github.com/repos/{repository}/actions/workflows/{workflow_file}/dispatches'
-
-  headers = {
-      'Authorization': f'Bearer {github_token}',
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-  }
-
-  payload = {
-      'ref': 'main',
-      'inputs': {
-          'race_url': next_race_url,
-          'minutes_before': str(minutes_before),
-      },
-  }
-
-  try:
-    response = requests.post(api_url, headers=headers, json=payload)
-    if response.status_code == 204:
-      print('🚀 次のレースのセルフ・トリガー（予約）に成功しました！')
-      return True
-    else:
-      print(
-          f'❌ セルフ・トリガー失敗: ステータスコード {response.status_code} -'
-          f' {response.text}'
-      )
-      return False
-  except Exception as e:
-    print(f'⚠️ セルフ・トリガー通信エラー: {e}')
-    return False
-
-
-def main():
-  print('⏱️ JACKAL セルフ・トリガー型 タイムライン・スタンバイシステム起動！')
-
-  base_1r_url = os.environ.get('RACE_URL')
-  minutes_before_str = os.environ.get('MINUTES_BEFORE', '10')
-
-  if not base_1r_url:
-    print('⚠️ RACE_URL が設定されていないため終了します。')
-    return
-
-  minutes_before = int(minutes_before_str)
-
-  r_date, r_title = auto_detect_race_info_from_url(base_1r_url)
-  print(f'🎯 【対象開催検知】 日付: {r_date} / 基準レース: {r_title}')
-  print(f'🔗 起点URL: {base_1r_url}')
-  print(f'⏳ 設定: 各レースの {minutes_before} 分前に通知します\n')
-
-  headers = {
-      'User-Agent': (
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          ' (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      ),
-      'Accept': (
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-      ),
-      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-      'Connection': 'keep-alive',
-  }
-
-  try:
-    race_urls = derive_12_race_urls(base_1r_url)
-    print(f'🔗 1R〜12RのURL生成完了（全{len(race_urls)}レース）')
-
-    jst = timezone(timedelta(hours=9))
-    now = datetime.now(jst)
-    race_schedule = []
-
-    print('🕷️ 各レースの発走時刻をスキャン＆過去レース判定中...')
-    for race_no, url in race_urls:
-      try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.encoding = resp.apparent_encoding
-
-        if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
-          r_hour, r_minute = extract_race_time_from_html(resp.text)
-          if r_hour is not None and r_minute is not None:
-            r_datetime = now.replace(
-                hour=r_hour, minute=r_minute, second=0, microsecond=0
-            )
-            target_time = r_datetime - timedelta(minutes=minutes_before)
-
-            if now > target_time:
-              print(
-                  f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d}'
-                  ' （既に時刻を過ぎているためスキップ ⏭️）'
-              )
-            else:
-              race_schedule.append({
-                  'race_no': race_no,
-                  'url': url,
-                  'race_time': f'{r_hour:02d}:{r_minute:02d}',
-                  'target_time': target_time,
-              })
-              print(
-                  f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02
+  time_match_jra = re.search(r'発走
