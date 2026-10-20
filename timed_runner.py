@@ -42,7 +42,11 @@ def get_race_schedule(base_url):
   )
   y, m, d = map(int, date_str.split('/'))
 
-  # 1R〜12Rまでのスケジュールを構築
+  # --- [ポイント] ページ内から各レースの正確な発走時刻を拾うか、
+  # または各レースの出馬表ページを軽量フェッチして発走時刻を取得するロジック ---
+  # ここでは例として、1R〜12Rを構築しつつ、テストや任意の時間でも対応できるようにするよ！
+  # （※もし元のページに全レースの時刻表一覧がある場合はそこからパースするのがベストです）
+
   for r_no in range(1, 13):
     if 'k_raceNo=' in base_url:
       r_url = re.sub(r'k_raceNo=\d+', f'k_raceNo={r_no}', base_url)
@@ -50,9 +54,11 @@ def get_race_schedule(base_url):
       separator = '&' if '?' in base_url else '?'
       r_url = f'{base_url}{separator}k_raceNo={r_no}'
 
-    # 仮の発走時刻の割り当て
+    # 例としての発走時刻（※実際の運用では、各レースのページや一覧から取得した時刻をここに入れます）
+    # ※もし任意の時間に動かす場合、例えば現在の時間に合わせたダミーや、
+    # 実際の競馬場の発走時刻テーブルをスクレイピングして紐付ける形にします。
     start_time = datetime(y, m, d, 10, 0, 0, tzinfo=jst) + timedelta(
-        minutes=35 * (r_no - 1)
+        minutes=45 * (r_no - 1)
     )
 
     race_schedule.append(
@@ -120,7 +126,7 @@ def main():
 
   current_race_url = os.environ.get(
       'RACE_URL',
-      'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=22&k_raceNo=1',
+      'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=18&k_raceNo=1',
   )
   minutes_before = int(os.environ.get('MINUTES_BEFORE', 10))
 
@@ -133,13 +139,16 @@ def main():
     print('⚠️ 有効なレーススケジュールが取得できませんでした。終了します。')
     return
 
-  # 2. 今回実行するターゲットのレースを特定
+  # 2. 【自動スキップ機能】現在時刻より後の（これから迎える）最初のレースを自動で探す！
   target_race = None
   next_race = None
 
   for i, race in enumerate(race_schedule):
+    # 発走の「minutes_before」分前を通知目標時刻とする
     target_time = race['start_time'] - timedelta(minutes=minutes_before)
 
+    # 💡 修正ポイント: 「まだ通知目標時刻を迎えていない」最初のレースをターゲットにする
+    # （これにより、すでに終わった過去のレースは自動でスキップされる！）
     if now < target_time:
       target_race = race
       target_race['target_time'] = target_time
@@ -148,7 +157,7 @@ def main():
       break
 
   if not target_race:
-    print('🏁 本日の全レースのスケジュール枠が終了したか、すべて発走済みです。')
+    print('🏁 本日の残りのレースはすべて発走済みか、スケジュール枠が終了しました。')
     return
 
   print(
