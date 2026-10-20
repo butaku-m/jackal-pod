@@ -145,16 +145,9 @@ def derive_12_race_urls(base_1r_url: str):
 
 
 def extract_race_time_from_html(html_content: str):
-  """詳細デバッグ付きの発走時刻抽出関数"""
+  """ページ内のHTMLから発走時刻（例: '14:35'）を抽出する"""
   soup = BeautifulSoup(html_content, 'html.parser')
-  
-  # 💡 ページ内に「発走」や「時」「分」といった文字がどう存在しているか、最初の1000文字をそのまま出力
   text = soup.get_text()
-  print(f"--- 📄 ページテキスト抜粋 (先頭500文字) ---\n{text[:500]}\n-----------------------------------------")
-
-  # 数字とコロンのペアをすべて探してログに出してみる
-  all_times = re.findall(r'(\d{1,2})[:：](\d{2})', text)
-  print(f"🔍 ページ内で見つかった時刻候補(HH:MM): {all_times[:10]}")
 
   time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
   if time_match:
@@ -251,12 +244,8 @@ def main():
     for race_no, url in race_urls:
       try:
         resp = requests.get(url, headers=headers, timeout=10)
-        # 💡 サーバーが実際に何と判定したか、バイト列の先頭も見比べる
-        print(f"🌐 ステータス: {resp.status_code} | apparent_encoding判定: {resp.apparent_encoding}")
-        print(f"📦 生バイト列先頭(bytes): {resp.content[:50]}")
-
         resp.encoding = resp.apparent_encoding
-        print(f"🔤 デコード後先頭(str): {resp.text[:100]}")
+
         if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
           r_hour, r_minute = extract_race_time_from_html(resp.text)
           if r_hour is not None and r_minute is not None:
