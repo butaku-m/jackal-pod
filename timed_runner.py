@@ -147,12 +147,6 @@ def derive_12_race_urls(base_1r_url: str):
 def extract_race_time_from_html(html_content: str):
   """ページ内のHTMLから発走時刻（例: '14:35'）を抽出する"""
   soup = BeautifulSoup(html_content, 'html.parser')
-
-  # 💡 デバッグ用：取得したHTMLの最初の500文字をログに出してみる
-  print('--- HTML DEBUG START ---')
-  print(soup.get_text()[:500])
-  print('--- HTML DEBUG END ---')
-
   text = soup.get_text()
 
   time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
@@ -220,8 +214,7 @@ def main():
     return
 
   minutes_before = int(minutes_before_str)
-  
-  # 💡 持ち込みの auto_detect_race_info_from_url で情報をきれいにログ出力！
+
   r_date, r_title = auto_detect_race_info_from_url(base_1r_url)
   print(f'🎯 【対象開催検知】 日付: {r_date} / 基準レース: {r_title}')
   print(f'🔗 起点URL: {base_1r_url}')
@@ -251,6 +244,9 @@ def main():
     for race_no, url in race_urls:
       try:
         resp = requests.get(url, headers=headers, timeout=10)
+        # 💡 文字コードを自動判定して正しくデコード（JRAのShift_JIS対策）
+        resp.encoding = resp.apparent_encoding
+
         if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
           r_hour, r_minute = extract_race_time_from_html(resp.text)
           if r_hour is not None and r_minute is not None:
