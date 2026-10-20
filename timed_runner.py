@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # ジャッカルエンジンのメイン関数をインポート
-from jackal_engine import run_jackal_engine
+from jackal_engine_github import run_jackal_engine
 
 # JST (日本時間) の設定
 jst = pytz.timezone('Asia/Tokyo')
