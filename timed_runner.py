@@ -33,6 +33,81 @@ def send_discord_notification(message: str):
     print(f'⚠️ Discord通知エラー: {e}')
 
 
+def auto_detect_race_info_from_url(url: str):
+  """URLから開催日・競馬場・レース番号をパースする（JRA/NAR完全分離版）"""
+  jra_baba_map = {
+      '01': '札幌',
+      '02': '函館',
+      '03': '福島',
+      '04': '新潟',
+      '05': '東京',
+      '06': '中山',
+      '07': '中京',
+      '08': '京都',
+      '09': '阪神',
+      '10': '小倉',
+  }
+  nar_baba_map = {
+      '36': '門別',
+      '3': '帯広',
+      '10': '盛岡',
+      '11': '水沢',
+      '18': '浦和',
+      '19': '船橋',
+      '20': '大井',
+      '21': '川崎',
+      '22': '金沢',
+      '23': '笠松',
+      '24': '名古屋',
+      '27': '園田',
+      '28': '姫路',
+      '31': '高知',
+      '32': '佐賀',
+  }
+
+  r_date = '不明'
+  r_place = '競馬'
+  r_race_no = '1'
+
+  # 1. JRA公式ドメインの処理
+  if 'jra.go.jp' in url and 'CNAME=' in url:
+    cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', url)
+    if cname_match:
+      cname_str = cname_match.group(1)
+      if len(cname_str) >= 21:
+        baba_cand = cname_str[9:11]
+        r_place = jra_baba_map.get(baba_cand, 'JRA')
+        race_cand = cname_str[19:21]
+        if race_cand.isdigit():
+          r_race_no = str(int(race_cand))
+        if len(cname_str) >= 29:
+          date_str = cname_str[21:29]
+          if date_str.isdigit():
+            r_date = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
+    return r_date, f'{r_place}{r_race_no}R'
+
+  # 2. 地方競馬(NAR)等の処理
+  baba_code_match = re.search(r'(?:k_babaCode|babaCode|ba)=(\d+)', url)
+  if baba_code_match:
+    raw_code = baba_code_match.group(1)
+    r_place = (
+        nar_baba_map.get(raw_code)
+        or nar_baba_map.get(raw_code.zfill(2))
+        or '地方競馬'
+    )
+
+  race_no_match = re.search(r'(?:k_raceNo|race_no|r_no|raceNo|R_no)=(\d+)', url)
+  if race_no_match:
+    r_race_no = race_no_match.group(1)
+
+  date_match = re.search(r'k_raceDate=(\d{4})/(\d{2})/(\d{2})', url)
+  if date_match:
+    y, m, d = date_match.groups()
+    r_date = f'{y}-{m}-{d}'
+
+  return r_date, f'{r_place}{r_race_no}R'
+
+
 def derive_12_race_urls(base_1r_url: str):
   """1RのURLを起点に1R〜12RのURL群を自動生成（JRA・地方両対応）"""
   if 'jra.go.jp' in base_1r_url and 'CNAME=' in base_1r_url:
@@ -74,6 +149,7 @@ def extract_race_time_from_html(html_content: str):
   soup = BeautifulSoup(html_content, 'html.parser')
   text = soup.get_text()
 
+  # JRAや地方競馬のページから時間パターン（HH:MM）を幅広くキャッチ
   time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
   if time_match:
     hour, minute = time_match.groups()
@@ -139,6 +215,10 @@ def main():
     return
 
   minutes_before = int(minutes_before_str)
+  
+  # 💡 持ち込みの auto_detect_race_info_from_url で情報をきれいにログ出力！
+  r_date, r_title = auto_detect_race_info_from_url(base_1r_url)
+  print(f'🎯 【対象開催検知】 日付: {r_date} / 基準レース: {r_title}')
   print(f'🔗 起点URL: {base_1r_url}')
   print(f'⏳ 設定: 各レースの {minutes_before} 分前に通知します\n')
 
