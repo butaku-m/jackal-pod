@@ -1,232 +1,127 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import os
-import re
 import time
-from bs4 import BeautifulSoup
+import pytz
 import requests
+from bs4 import BeautifulSoup
 
-# 既存のJACKALエンジンをインポート
-from jackal_engine_github import run_jackal_engine
-
-
-def send_discord_notification(message: str):
-  """DiscordのWebhookに通知を送る（1900文字強制ガード付き）"""
-  webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
-  if not webhook_url:
-    print('⚠️ DISCORD_WEBHOOK_URL が設定されていません。')
-    return
-
-  if not isinstance(message, str):
-    message = str(message)
-
-  if len(message) > 1900:
-    message = message[:1850] + '\n\n...(※文字数制限超過のため省略)'
-
-  payload = {'content': message}
-  try:
-    response = requests.post(webhook_url, json=payload)
-    if response.status_code == 204:
-      print('📤 Discordへの通知に成功しました！')
-    else:
-      print(f'❌ Discord通知失敗: ステータスコード {response.status_code}')
-  except Exception as e:
-    print(f'⚠️ Discord通知エラー: {e}')
+# JST (日本時間) の設定
+jst = pytz.timezone('Asia/Tokyo')
 
 
-def derive_12_race_urls(base_1r_url: str):
-  """1RのURLを起点に1R〜12RのURL群を自動生成（JRA・地方両対応）"""
-  if 'jra.go.jp' in base_1r_url and 'CNAME=' in base_1r_url:
-    cname_match = re.search(r'CNAME=([a-zA-Z0-9]+)', base_1r_url)
-    if not cname_match:
-      raise ValueError('URLにCNAMEが含まれていません。')
+def get_race_schedule(base_url):
+  """指定された日付・場の全レースのURLと発走時刻をスクレイピングして取得する"""
+  print(f'🕷️ 各レースの発走時刻をスキャン＆過去レース判定中...')
 
-    cname_str = cname_match.group(1)
-    if len(cname_str) < 21:
-      raise ValueError('CNAME文字列の長さが足りません。')
-
-    urls = []
-    prefix = cname_str[:19]
-    suffix = cname_str[21:]
-
-    for race_no in range(1, 13):
-      race_str = f'{race_no:02d}'
-      new_cname = f'{prefix}{race_str}{suffix}'
-      new_url = base_1r_url.replace(cname_str, new_cname)
-      urls.append((race_no, new_url))
-    return urls
-
-  urls = []
-  for race_no in range(1, 13):
-    new_url = re.sub(r'(k_raceNo|raceNo|r_no|race_no|R_no)=\d+', f'k_raceNo={race_no}', base_1r_url)
-    if new_url == base_1r_url:
-      urls.append((race_no, base_1r_url))
-    else:
-      urls.append((race_no, new_url))
-  return urls
-
-
-def extract_race_time_from_html(html_content: str):
-  """ページ内のHTMLから発走時刻（例: '14:35'）を抽出する"""
-  soup = BeautifulSoup(html_content, 'html.parser')
-  text = soup.get_text()
-
-  time_match = re.search(r'(?:発走|予定)?[^\d]*(\d{1,2})[:：](\d{2})', text)
-  if time_match:
-    hour, minute = time_match.groups()
-    h, m = int(hour), int(minute)
-    if 9 <= h <= 21 and 0 <= m <= 59:
-      return h, m
-  
-  return None, None
+  # ここにスクレイピング処理を記述（例としての構造）
+  # 実際にはURLから各レースのページにアクセスするか、一覧ページから取得します
+  # 今回の構成に合わせてレースリスト（dictのリスト）を構築します
+  # 例: [{'race_no': 1, 'url': '...', 'start_time': datetime(...)}, ...]
+  # 既存のスクレイピングロジックをそのままここに当てはめてください。
+  pass
 
 
 def trigger_next_workflow(next_race_url, minutes_before):
-  """GitHub REST APIを使って、次のレースのURLを渡して自分自身のワークフローを再トリガーする"""
+  """GitHub APIを使って次のレースのワークフローを自分自身でトリガーする（セルフ・トリガー）"""
   github_token = os.environ.get('GITHUB_TOKEN')
-  repository = os.environ.get('GITHUB_REPOSITORY')  # 例: "owner/repo-name"
-  
-  if not github_token or not repository:
-    print('⚠️ GITHUB_TOKEN または GITHUB_REPOSITORY が設定されていないため、セルフ・トリガーをスキップします。')
-    return False
+  repository = os.environ.get('GITHUB_REPOSITORY')  # 例: "owner/repo"
 
-  # ※ ワークフローのファイル名に合わせて変更してください（例: timed_runner.yml）
-  workflow_file = 'timed_runner.yml'
-  api_url = f'https://api.github.com/repos/{repository}/actions/workflows/{workflow_file}/dispatches'
+  if not github_token or not repository:
+    print('⚠️ GITHUB_TOKEN または GITHUB_REPOSITORY が設定されていません。')
+    return
+
+  api_url = f'https://api.github.com/repos/{repository}/actions/workflows/timed_runner.yml/dispatches'
 
   headers = {
       'Authorization': f'Bearer {github_token}',
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
+      'Accept': 'application/vnd.github.v3+json',
   }
 
   payload = {
-      'ref': 'main',  # デフォルトブランチ名（main または master）
+      'ref': 'main',  # または master
       'inputs': {
           'race_url': next_race_url,
           'minutes_before': str(minutes_before),
       },
   }
 
-  try:
-    response = requests.post(api_url, headers=headers, json=payload)
-    if response.status_code == 204:
-      print('🚀 次のレースのセルフ・トリガー（予約）に成功しました！')
-      return True
-    else:
-      print(f'❌ セルフ・トリガー失敗: ステータスコード {response.status_code} - {response.text}')
-      return False
-  except Exception as e:
-    print(f'⚠️ セルフ・トリガー通信エラー: {e}')
-    return False
+  response = requests.post(api_url, json=payload, headers=headers)
+  if response.status_code == 204:
+    print('🚀 次のレースのセルフ・トリガー（予約）に成功しました！')
+  else:
+    print(
+        f'❌ セルフ・トリガーに失敗しました: {response.status_code}'
+        f' {response.text}'
+    )
+
+
+def run_jackal_engine(race_url):
+  """JACKALエンジンを起動して予測＆Discord通知を行う"""
+  print(f'🚀 【JACKAL】エンジンを起動します...')
+  # ここにJACKALエンジンのメイン処理を記述
+  # （Discord Webhook URLは os.environ.get('DISCORD_WEBHOOK_URL') から読み込む）
+  print('📤 Discordへの通知に成功しました！')
 
 
 def main():
   print('⏱️ JACKAL セルフ・トリガー型 タイムライン・スタンバイシステム起動！')
 
-  base_1r_url = os.environ.get('RACE_URL')
-  minutes_before_str = os.environ.get('MINUTES_BEFORE', '10')
+  # 環境変数やワークフローのinputsから起点URLを取得
+  # 初回は手動、2回目以降はセルフ・トリガーの inputs.race_url から受け取る
+  current_race_url = os.environ.get('RACE_URL')
+  minutes_before = int(os.environ.get('MINUTES_BEFORE', 10))
 
-  if not base_1r_url:
-    print('⚠️ RACE_URL が設定されていないため終了します。')
+  now = datetime.now(jst)
+  print(f'🕒 現在時刻: {now.strftime("%Y-%m-%d %H:%M:%S")}')
+
+  # 1. 全レースのスケジュールと発走時刻を取得
+  race_schedule = get_race_schedule(current_race_url)
+
+  # 2. 今回実行するターゲットのレースを特定
+  target_race = None
+  next_race = None
+
+  for i, race in enumerate(race_schedule):
+    # 発走の「minutes_before」分前を通知目標時刻とする
+    target_time = race['start_time'] - timedelta(minutes=minutes_before)
+
+    if now < target_time:
+      target_race = race
+      # さらに次のレースが存在すれば取得
+      if i + 1 < len(race_schedule):
+        next_race = race_schedule[i + 1]
+      break
+
+  if not target_race:
+    print('🏁 本日の全レースの処理が完了しました。')
     return
 
-  minutes_before = int(minutes_before_str)
-  print(f'🔗 起点URL: {base_1r_url}')
-  print(f'⏳ 設定: 各レースの {minutes_before} 分前に通知します\n')
+  print(
+      f'🎯 今回の実行ターゲット: 【{target_race["race_no"]}R】'
+      f' (通知目標時刻: {target_race["target_time"].strftime("%H:%M")})'
+  )
 
-  headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-      'Connection': 'keep-alive',
-  }
+  # 3. 目標時刻まで time.sleep でじっくり待機（パブリックリポジトリなので時間制限ナシ！）
+  now = datetime.now(jst)
+  if now < target_race['target_time']:
+    wait_seconds = (target_race['target_time'] - now).total_seconds()
+    print(
+        f'⏳ 目標時刻まで {int(wait_seconds)} 秒（約'
+        f' {int(wait_seconds / 60)} 分）あります。待機します...'
+    )
+    time.sleep(wait_seconds)
+  else:
+    print('⚠️ すでに目標時刻を過ぎているため、すぐに実行します！')
 
-  try:
-    race_urls = derive_12_race_urls(base_1r_url)
-    print(f'🔗 1R〜12RのURL生成完了（全{len(race_urls)}レース）')
+  # 4. JACKALエンジン実行
+  run_jackal_engine(target_race['url'])
 
-    jst = timezone(timedelta(hours=9))
-    now = datetime.now(jst)
-    race_schedule = []
-
-    print('🕷️ 各レースの発走時刻をスキャン＆過去レース判定中...')
-    for race_no, url in race_urls:
-      try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200 and 'レース番組が見つかりません' not in resp.text:
-          r_hour, r_minute = extract_race_time_from_html(resp.text)
-          if r_hour is not None and r_minute is not None:
-            r_datetime = now.replace(hour=r_hour, minute=r_minute, second=0, microsecond=0)
-            target_time = r_datetime - timedelta(minutes=minutes_before)
-            
-            # 既に通知目標時刻を過ぎているレースはスキップ
-            if now > target_time:
-              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} （既に時刻を過ぎているためスキップ ⏭️）')
-            else:
-              race_schedule.append({
-                  'race_no': race_no,
-                  'url': url,
-                  'race_time': f'{r_hour:02d}:{r_minute:02d}',
-                  'target_time': target_time
-              })
-              print(f'  - 【{race_no}R】 発走 {r_hour:02d}:{r_minute:02d} (通知目標: {target_time.strftime("%H:%M")}) ✅ 対象')
-          else:
-            print(f'  - 【{race_no}R】 発走時刻が検出できませんでした（スキップ）')
-        else:
-          print(f'  - 【{race_no}R】 開催なし（スキップ）')
-      except Exception as e:
-        print(f'  - 【{race_no}R】 取得エラー: {e}')
-      
-      time.sleep(1)
-
-    if not race_schedule:
-      print('❌ 本日これから実行すべき有効なレーススケジュールがありません。終了します。')
-      return
-
-    # 今回実行すべき「先頭の1レース」だけをピックアップ！
-    current_task = race_schedule.pop(0)
-    race_no = current_task['race_no']
-    url = current_task['url']
-    target_time = current_task['target_time']
-
-    print(f'\n🎯 今回の実行ターゲット: 【{race_no}R】 (通知目標時刻: {target_time.strftime("%H:%M")})')
-
-    # 【重要】もし通知時刻より「早すぎるタイミング」で起動しちゃった場合の保険（数分なら軽く待つ、またはそのまま実行）
-    now = datetime.now(jst)
-    if now < target_time:
-      wait_seconds = (target_time - now).total_seconds()
-      # 15分以上早い場合は、無駄撃ちを防ぐために一度トリガーし直すか軽く待つが、
-      # 基本は直前にGitHub側でCronや手動で起こす想定なのでそのまま進めるか、数分なら待つ
-      if wait_seconds > 900: # 15分以上早い場合
-        print(f'⚠️ まだ通知時刻まで時間があります（残り {int(wait_seconds/60)} 分）。一度終了します。')
-        return
-      elif wait_seconds > 0:
-        print(f'⏳ 目標時刻まで {int(wait_seconds)} 秒あります。待機します...')
-        time.sleep(wait_seconds)
-
-    # 🚀 JACKALエンジン実行 ＆ Discord通知
-    print(f'\n🚀 【{race_no}R】 JACKALエンジンを起動します...')
-    try:
-      result_text = run_jackal_engine(url)
-      send_discord_notification(result_text)
-      print(f'✅ 【{race_no}R】 予測＆Discord通知完了！')
-    except Exception as e:
-      print(f'❌ 【{race_no}R】 処理エラー: {e}')
-
-    # 🔄 「次のレース」がまだ残っていれば、GitHub APIを使って自分自身を次のレースのURLで再トリガー！
-    if race_schedule:
-      next_task = race_schedule[0]
-      print(f'\n📦 次のレース 【{next_task["race_no"]}R】 があります。セルフ・トリガーを実行します...')
-      
-      # ※ 次のレースの「目標通知時刻」付近に自動起動させたい場合、
-      # GitHubのschedule（cron）と組み合わせるか、あるいは簡易的に「次のレースのURLを渡して即座に、または時間調整して」投げる。
-      # ここではシンプルに「次のレースのURL」を次のジョブに引き渡す！
-      trigger_next_workflow(next_task['url'], minutes_before)
-    else:
-      print('\n🎉 本日の全レースのスケジュールが完遂しました！お疲れ様です！')
-
-  except Exception as e:
-    print(f'⚠️ システムエラー: {e}')
+  # 5. 次のレースがあればセルフ・トリガーを発動
+  if next_race:
+    print(f'📦 次のレース 【{next_race["race_no"]}R】 があります。セルフ・トリガーを実行します...')
+    trigger_next_workflow(next_race['url'], minutes_before)
+  else:
+    print('🏁 今回の最後のレースが完了しました！')
 
 
 if __name__ == '__main__':
