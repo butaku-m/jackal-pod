@@ -7,7 +7,7 @@ on:
         description: 'Target Race URL'
         required: false
         # 初回起動時（または手動テスト時）の起点となるURL
-        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=22&k_raceNo=1'
+        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=18&k_raceNo=1'
         type: string
       minutes_before:
         description: 'Minutes before race to notify'
@@ -30,14 +30,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 pytz
+          pip install requests beautifulsoup4 pytz google-genai pandas tabulate
 
       - name: Run timed runner
         env:
-          # セルフ・トリガー用のPAT（Personal Access Token）をここで指定！
+          # セルフ・トリガー用のPAT（Personal Access Token）
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          # DiscordのWebhook URLを安全に環境変数として渡す
+          # DiscordのWebhook URL
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           # ワークフローのinputsから受け取るパラメータ
           RACE_URL: ${{ github.event.inputs.race_url }}
