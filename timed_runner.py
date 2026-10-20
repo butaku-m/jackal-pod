@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import os
+import re
 import time
 import pytz
 import requests
@@ -13,8 +14,8 @@ jst = pytz.timezone('Asia/Tokyo')
 
 
 def get_race_schedule(base_url):
-  """指定されたレースのURLから、同じ日・同じ場の「全レースのURLと発走時刻」をスクレイピングして取得する"""
-  print(f'🕷️ 本日の全レースの発走時刻とスケジュールをスキャン中...')
+  """指定されたレースのURLから、同じ日・同じ場の全レースのURLと発走時刻をスクレイピングして取得する"""
+  print('🕷️ 本日の全レースの発走時刻とスケジュールをスキャン中...')
 
   session = requests.Session()
   headers = {
@@ -34,52 +35,22 @@ def get_race_schedule(base_url):
   soup = BeautifulSoup(response.text, 'html.parser')
   race_schedule = []
 
-  # --- ここで出馬表ページ等にある「全レース選択リンク（1R〜最終R）」や発走時刻を探す ---
-  # 地方競馬やJRAのページ構造に合わせて、レース一覧のリンクと発走時刻を抽出します
-  # 例として、ページ内にあるレース番号のリンクと発走時刻（例: "11:30発走" などのテキスト）をスキャンする処理の枠組み：
-
-  # 簡易的な実装例：もしページ内に他のレースへのリンクや発走時刻の要素があればここでパース
-  # （実際の地方競馬・JRAの出馬表ページには通常「1R, 2R...」のタブやリンク、および発走時刻が存在します）
-
-  # 万が一自動スキャンが難しい場合は、URLのレース番号部分（k_raceNo=1, 2, 3...）を書き換えつつ
-  # 存在するレースを生成するフォールバックロジックを入れておくと安全です。
-
-  # 以下は、URLの `k_raceNo=X` の数字を 12レース分 自動生成しつつ、
-  # ページ内から各レースの発走時刻（例: "11:30" など）を正規表現で拾い出すスマートな実装の例です：
-
-  # 日付とベースURLの基本部分を分解
-  base_url_cleaned = base_url
-  if 'k_raceNo=' in base_url_cleaned:
-    # k_raceNoのパラメータを除いたベースを作る
-    import re
-
-    base_url_cleaned = re.sub(r'k_raceNo=\d+', '', base_url_cleaned)
-    if not base_url_cleaned.endswith('&'):
-      base_url_cleaned += '&' if '?' in base_url_cleaned else '?k_raceNo='
-
-  # 日付の抽出（URLから）
+  # URLから日付を抽出
   date_match = re.search(r'k_raceDate=(\d{4}%2F\d{2}%2F\d{2}|\d{4}/\d{2}/\d{2})', base_url)
   date_str = (
       date_match.group(1).replace('%2F', '/') if date_match else '2026/10/20'
   )
   y, m, d = map(int, date_str.split('/'))
 
-  # ページテキストから時間（例: 10:30 など）のパターンをすべて探し、レース番号と紐付ける
-  # （※もし正確な発走時刻の取得セレクタがある場合はそこに置き換えてください）
-  # ここでは安全のために、1R〜12Rまでを構築し、見つかった発走時刻を割り当てるか、
-  # ダミーとして一定間隔（例: 30分おきなど）を設定するフォールバックを持たせます。
-
-  for r_no in range(1, 13):  '1Rから12Rまでを想定'
-    # URLの組み立て
+  # 1R〜12Rまでのスケジュールを構築
+  for r_no in range(1, 13):
     if 'k_raceNo=' in base_url:
       r_url = re.sub(r'k_raceNo=\d+', f'k_raceNo={r_no}', base_url)
     else:
       separator = '&' if '?' in base_url else '?'
       r_url = f'{base_url}{separator}k_raceNo={r_no}'
 
-    # 仮の発走時刻の割り当て（※実際のページから時刻表をパースする場合はここを書き換えてください）
-    # 例として、朝10:00から30分おきに設定（実際の運用ではページの時刻表から取得するのがベスト）
-    # ここでは例としてダミー時間を入れますが、ご自身のページの構造に合わせて時刻をパースしてください。
+    # 仮の発走時刻の割り当て
     start_time = datetime(y, m, d, 10, 0, 0, tzinfo=jst) + timedelta(
         minutes=35 * (r_no - 1)
     )
@@ -136,7 +107,6 @@ def send_to_discord(message):
     print(message)
     return
 
-  # Discordの文字数制限（2000文字）に配慮して分割またはそのまま送信
   payload = {'content': message}
   response = requests.post(webhook_url, json=payload)
   if response.status_code in [200, 204]:
@@ -168,7 +138,6 @@ def main():
   next_race = None
 
   for i, race in enumerate(race_schedule):
-    # 発走の「minutes_before」分前を通知目標時刻とする
     target_time = race['start_time'] - timedelta(minutes=minutes_before)
 
     if now < target_time:
@@ -187,7 +156,7 @@ def main():
       f' (通知目標時刻: {target_race["target_time"].strftime("%H:%M")})'
   )
 
-  # 3. 目標時刻まで time.sleep で待機（パブリックリポジトリなので時間制限ナシ！）
+  # 3. 目標時刻まで time.sleep で待機
   now = datetime.now(jst)
   if now < target_race['target_time']:
     wait_seconds = (target_race['target_time'] - now).total_seconds()
@@ -199,10 +168,9 @@ def main():
   else:
     print('⚠️ すでに目標時刻を過ぎているため、すぐに実行します！')
 
-  # 4. JACKALエンジン実行（ジャッカルエンジンの関数を呼び出す）
+  # 4. JACKALエンジン実行 ＆ Discord通知
   try:
     result_text = run_jackal_engine(target_race['url'])
-    # 予測結果をDiscordに通知
     send_to_discord(result_text)
   except Exception as e:
     print(f'❌ JACKALエンジンの実行中にエラーが発生しました: {e}')
