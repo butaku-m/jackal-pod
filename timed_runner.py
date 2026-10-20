@@ -14,7 +14,10 @@ jst = pytz.timezone('Asia/Tokyo')
 
 
 def get_race_schedule(base_url):
-  """指定されたレースのURLから、同じ日・同じ場の全レースのURLと発走時刻をスクレイピングして取得する"""
+  """指定されたレースのURLから、同じ日・同じ場の全レースのURLと、
+
+  ページ内からスクレイピングした正確な発走時刻を取得する
+  """
   print('🕷️ 本日の全レースの発走時刻とスケジュールをスキャン中...')
 
   session = requests.Session()
@@ -33,6 +36,7 @@ def get_race_schedule(base_url):
     return []
 
   soup = BeautifulSoup(response.text, 'html.parser')
+  page_text = soup.get_text()
   race_schedule = []
 
   # URLから日付を抽出
@@ -42,10 +46,8 @@ def get_race_schedule(base_url):
   )
   y, m, d = map(int, date_str.split('/'))
 
-  # --- [ポイント] ページ内から各レースの正確な発走時刻を拾うか、
-  # または各レースの出馬表ページを軽量フェッチして発走時刻を取得するロジック ---
-  # ここでは例として、1R〜12Rを構築しつつ、テストや任意の時間でも対応できるようにするよ！
-  # （※もし元のページに全レースの時刻表一覧がある場合はそこからパースするのがベストです）
+  # ページ内から発走時刻の候補を自動抽出
+  time_candidates = re.findall(r'(\d{1,2}時\d{2}分|\d{1,2}:\d{2})', page_text)
 
   for r_no in range(1, 13):
     if 'k_raceNo=' in base_url:
@@ -54,19 +56,26 @@ def get_race_schedule(base_url):
       separator = '&' if '?' in base_url else '?'
       r_url = f'{base_url}{separator}k_raceNo={r_no}'
 
-    # 例としての発走時刻（※実際の運用では、各レースのページや一覧から取得した時刻をここに入れます）
-    # ※もし任意の時間に動かす場合、例えば現在の時間に合わせたダミーや、
-    # 実際の競馬場の発走時刻テーブルをスクレイピングして紐付ける形にします。
-    start_time = datetime(y, m, d, 10, 0, 0, tzinfo=jst) + timedelta(
-        minutes=45 * (r_no - 1)
-    )
+    start_time = None
+    if r_no - 1 < len(time_candidates):
+      t_str = time_candidates[r_no - 1]
+      t_match = re.search(r'(\d{1,2}):(\d{2})', t_str)
+      if t_match:
+        th, tm = map(int, t_match.groups())
+        start_time = datetime(y, m, d, th, tm, 0, tzinfo=jst)
+
+    # 取得できなかった場合のフォールバック（朝10:00から40分おき）
+    if not start_time:
+      start_time = datetime(y, m, d, 10, 0, 0, tzinfo=jst) + timedelta(
+          minutes=40 * (r_no - 1)
+      )
 
     race_schedule.append(
         {'race_no': r_no, 'url': r_url, 'start_time': start_time}
     )
 
   print(
-      f'✅ スケジュールスキャン完了: 全 {len(race_schedule)} レーズを検知しました。'
+      f'✅ スケジュールスキャン完了: 全 {len(race_schedule)} レーズの時間を取得しました。'
   )
   return race_schedule
 
@@ -133,22 +142,20 @@ def main():
   now = datetime.now(jst)
   print(f'🕒 現在時刻: {now.strftime("%Y-%m-%d %H:%M:%S")}')
 
-  # 1. 全レースのスケジュールを取得
+  # 1. 全レースのスケジュールと正確な発走時刻を取得
   race_schedule = get_race_schedule(current_race_url)
   if not race_schedule:
     print('⚠️ 有効なレーススケジュールが取得できませんでした。終了します。')
     return
 
-  # 2. 【自動スキップ機能】現在時刻より後の（これから迎える）最初のレースを自動で探す！
+  # 2. 【自動スキップ機能】現在時刻より後の（これから迎える）最初のレースを自動で探す
   target_race = None
   next_race = None
 
   for i, race in enumerate(race_schedule):
-    # 発走の「minutes_before」分前を通知目標時刻とする
     target_time = race['start_time'] - timedelta(minutes=minutes_before)
 
-    # 💡 修正ポイント: 「まだ通知目標時刻を迎えていない」最初のレースをターゲットにする
-    # （これにより、すでに終わった過去のレースは自動でスキップされる！）
+    # まだ通知目標時刻を迎えていない最初のレースをターゲットにする（過去レースは自動スキップ）
     if now < target_time:
       target_race = race
       target_race['target_time'] = target_time
