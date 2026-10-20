@@ -6,7 +6,7 @@ on:
       race_url:
         description: 'Target Race URL'
         required: false
-        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=18&k_raceNo=1'
+        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_raceNo=1&k_babaCode=36'
         type: string
       minutes_before:
         description: 'Minutes before race to notify'
@@ -39,7 +39,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          RACE_URL: ${{ github.event.inputs.race_url || 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=18&k_raceNo=1' }}
+          RACE_URL: ${{ github.event.inputs.race_url || 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_raceNo=1&k_babaCode=36' }}
           MINUTES_BEFORE: ${{ github.event.inputs.minutes_before || '10' }}
         run: |
-          python timed_runner.py
+          python -u timed_runner.py
