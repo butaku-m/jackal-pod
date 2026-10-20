@@ -6,7 +6,8 @@ on:
       race_url:
         description: 'Target Race URL'
         required: false
-        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=22&k_raceNo=1' # 初回の起点URL
+        # 初回起動時（または手動テスト時）の起点となるURL
+        default: 'https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable?k_raceDate=2026%2F10%2F20&k_babaCode=22&k_raceNo=1'
         type: string
       minutes_before:
         description: 'Minutes before race to notify'
@@ -33,9 +34,12 @@ jobs:
 
       - name: Run timed runner
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # セルフ・トリガー用のPAT（Personal Access Token）をここで指定！
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # DiscordのWebhook URLを安全に環境変数として渡す
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # ワークフローのinputsから受け取るパラメータ
           RACE_URL: ${{ github.event.inputs.race_url }}
           MINUTES_BEFORE: ${{ github.event.inputs.minutes_before }}
         run: |
