@@ -43,3 +43,11 @@ jobs:
           MINUTES_BEFORE: ${{ github.event.inputs.minutes_before || '10' }}
         run: |
           python -u timed_runner.py
+
+      - name: Upload Prediction Logs
+        uses: actions/upload-artifact@v4
+        if: always() # レースが途中で終わったりエラーになっても、そこまでのログを確実に残す
+        with:
+          name: jackal-prediction-logs
+          path: logs/
+          retention-days: 360 # ログを保持する日数（お好みで調整可能）
