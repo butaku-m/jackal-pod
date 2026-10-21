@@ -50,4 +50,4 @@ jobs:
         with:
           name: jackal-prediction-logs
           path: logs/
-          retention-days: 360 # ログを保持する日数（お好みで調整可能）
+          retention-days: 90 # ログを保持する日数（お好みで調整可能）
