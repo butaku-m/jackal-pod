@@ -13,8 +13,13 @@ on:
         required: false
         default: '10'
         type: string
-  schedule:
-    - cron: '0 1 * * *'
+  # cron は完全撤去済み！
+
+concurrency:
+  group: jackal-runner-lock
+  cancel-in-progress: false 
+  # ※ falseにしているので、同時期に走ろうとした場合はキュー（待ち行列）に入り、
+  #   前の処理が綺麗に終わってから次のレース処理が安全に実行されます。
 
 jobs:
   run-runner:
@@ -46,8 +51,8 @@ jobs:
 
       - name: Upload Prediction Logs
         uses: actions/upload-artifact@v4
-        if: always() # レースが途中で終わったりエラーになっても、そこまでのログを確実に残す
+        if: always()
         with:
           name: jackal-prediction-logs
           path: logs/
-          retention-days: 90 # ログを保持する日数（お好みで調整可能）
+          retention-days: 90
