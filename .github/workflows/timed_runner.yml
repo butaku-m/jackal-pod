@@ -13,13 +13,6 @@ on:
         required: false
         default: '10'
         type: string
-  # cron は完全撤去済み！
-
-concurrency:
-  group: jackal-runner-lock
-  cancel-in-progress: false 
-  # ※ falseにしているので、同時期に走ろうとした場合はキュー（待ち行列）に入り、
-  #   前の処理が綺麗に終わってから次のレース処理が安全に実行されます。
 
 jobs:
   run-runner:
