@@ -34,6 +34,28 @@ def send_discord_notification(message: str):
     print(f'⚠️ Discord通知エラー: {e}')
 
 
+def save_prediction_log_to_file(race_title: str, message: str):
+  """Discordに通知する内容をそのままローカルのlogs/フォルダにテキストとして蓄積する"""
+  try:
+    os.makedirs('logs', exist_ok=True)
+    jst = timezone(timedelta(hours=9))
+    today_str = datetime.now(jst).strftime('%Y-%m-%d')
+    file_path = f'logs/{today_str}_jackal_predictions.txt'
+
+    timestamp = datetime.now(jst).strftime('%Y-%m-%d %H:%M:%S')
+
+    with open(file_path, 'a', encoding='utf-8') as f:
+      f.write(f'========================================\n')
+      f.write(f' 🎯 対象レース: {race_title} (保存時刻: {timestamp})\n')
+      f.write(f'========================================\n\n')
+      f.write(str(message))
+      f.write('\n\n\n')
+
+    print(f'📝 予測結果をローカルログに保存しました: {file_path}')
+  except Exception as e:
+    print(f'⚠️ ログファイル保存エラー: {e}')
+
+
 def auto_detect_race_info_from_url(url: str):
   """URLから開催日・競馬場・レース番号をパースする（JRA/NAR完全分離版）"""
   jra_baba_map = {
@@ -109,14 +131,7 @@ def auto_detect_race_info_from_url(url: str):
   return r_date, f'{r_place}{r_race_no}R'
 
 
-# ==========================================
-# 🌟 君が作り上げた至高のJRA自動インデクサー＆タイムライン構築関数
-# ==========================================
 def fetch_jra_race_links_from_base(base_url: str):
-  """任意のJRAレースURLを起点に、同じ開催日・同じ競馬場の1R〜12R直リンクを
-
-  正確にフィルタリングして取得する関数（絶対のベースコード）
-  """
   headers = {
       'User-Agent': (
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -180,10 +195,6 @@ def fetch_jra_race_links_from_base(base_url: str):
 
 
 def fetch_jra_full_timeline(base_url: str):
-  """「絶対のベースコード」で収穫した全レースリンクを巡回し、
-
-  発走時刻を抽出してタイムライン（スケジュール）を構築する統合関数
-  """
   headers = {
       'User-Agent': (
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -248,7 +259,6 @@ def fetch_jra_full_timeline(base_url: str):
 
 
 def trigger_next_workflow(next_race_url, minutes_before):
-  """GitHub REST APIを使って、次のレースのURLを渡して自分自身のワークフローを再トリガーする"""
   github_token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_PAT')
   repository = os.environ.get('GITHUB_REPOSITORY')
 
@@ -313,7 +323,6 @@ def main():
   race_schedule = []
 
   try:
-    # 🐎 JRAなら君の最強インデクサー関数をダイレクトに呼び出し！
     if 'jra.go.jp' in base_1r_url and 'CNAME=' in base_1r_url:
       print('🐎 JRA公式ドメインを検知：検証済みタイムラインビルダーを実行します...')
       timeline_data = fetch_jra_full_timeline(base_1r_url)
@@ -353,7 +362,6 @@ def main():
           print(f'  - 【{race_no}R】 時刻が有効ではないためスキップ')
 
     else:
-      # 地方競馬(NAR)等の従来の処理
       print(
           '🐴 地方競馬ドメインを検知：従来のURL置換ロジックを実行します...'
       )
@@ -429,8 +437,11 @@ def main():
     url = current_task['url']
     target_time = current_task['target_time']
 
+    # 現在のレースの正式なタイトルを再検出しておく
+    _, current_race_title = auto_detect_race_info_from_url(url)
+
     print(
-        f'\n🎯 今回の実行ターゲット: 【{race_no}R】 (通知目標時刻:'
+        f'\n🎯 今回の実行ターゲット: 【{current_race_title}】 (通知目標時刻:'
         f' {target_time.strftime("%H:%M")})'
     )
 
@@ -445,18 +456,25 @@ def main():
     else:
       print('⚠️ すでに目標時刻を過ぎているため、すぐに実行します！')
 
-    print(f'\n🚀 【{race_no}R】 JACKALエンジンを起動します...')
+    print(f'\n🚀 【{current_race_title}】 JACKALエンジンを起動します...')
     try:
       result_text = run_jackal_engine(url)
+
+      # 1. Discordに通知
       send_discord_notification(result_text)
-      print(f'✅ 【{race_no}R】 予測＆Discord通知完了！')
+
+      # 2. 🌟 ローカルのテキストファイルに結果を自動蓄積！
+      save_prediction_log_to_file(current_race_title, result_text)
+
+      print(f'✅ 【{current_race_title}】 予測・Discord通知・ローカル保存完了！')
     except Exception as e:
-      print(f'❌ 【{race_no}R】 処理エラー: {e}')
+      print(f'❌ 【{current_race_title}】 処理エラー: {e}')
 
     if race_schedule:
       next_task = race_schedule[0]
+      _, next_race_title = auto_detect_race_info_from_url(next_task['url'])
       print(
-          f'\n📦 次のレース 【{next_task["race_no"]}R】'
+          f'\n📦 次のレース 【{next_race_title}】'
           ' があります。セルフ・トリガーを実行します...'
       )
       trigger_next_workflow(next_task['url'], minutes_before)
