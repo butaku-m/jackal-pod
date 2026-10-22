@@ -123,7 +123,10 @@ def auto_detect_race_info_from_url(url: str):
     if race_no_match:
         r_race_no = race_no_match.group(1)
 
-    date_match = re.search(r'k_raceDate=(\d{4})/(\d{2})/(\d{2})', url)
+    # 🌟 URLエンコードされた %2F も含めて日付を正しくパース
+    date_match = re.search(
+        r'k_raceDate=(\d{4})(?:/|%2F)(\d{2})(?:/|%2F)(\d{2})', url
+    )
     if date_match:
         y, m, d = date_match.groups()
         r_date = f'{y}-{m}-{d}'
@@ -397,10 +400,9 @@ def main():
                         soup = BeautifulSoup(resp.text, 'html.parser')
                         text = soup.get_text(' ', strip=True)
                         
-                        # 🛠️ 【修正】地方競馬の発走時刻を誤爆しないよう「発走」や「時刻」キーワード周辺を厳密にキャッチ
+                        # 地方競馬の発走時刻を誤爆しないよう「発走」や「時刻」キーワード周辺を厳密にキャッチ
                         time_match = re.search(r'(?:発走|時刻|予定)[^\d]*(\d{1,2})[:：](\d{2})', text)
                         if not time_match:
-                            # 万が一キーワードがない場合のフォールバック（ただし深夜帯 00〜08時台は前日発売等のゴミとみなして除外）
                             all_matches = re.findall(r'(\d{1,2})[:：](\d{2})', text)
                             for h_str, m_str in all_matches:
                                 h = int(h_str)
@@ -411,9 +413,9 @@ def main():
                         if time_match:
                             r_hour, r_minute = map(int, time_match.groups()[:2])
                             
-                            # 万が一おかしな深夜・早朝時間を拾ってしまった場合の安全ガード
+                            # 常識的な開催時間外の時間を拾った場合の安全ガード
                             if not (9 <= r_hour <= 21):
-                                print(f'  - 【{race_no}R】 ⚠️ 取得した時刻 ({r_hour:02d}:{r_minute:02d}) が競馬の開催時間外のためスキップします')
+                                print(f'  - 【{race_no}R】 ⚠️ 取得した時刻 ({r_hour:02d}:{r_minute:02d}) が開催時間外のためスキップします')
                                 continue
 
                             r_datetime = now.replace(
