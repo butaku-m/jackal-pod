@@ -469,7 +469,7 @@ def main():
                 f'⏳ 目標時刻まで {int(wait_seconds)} 秒（約'
                 f' {int(wait_seconds / 60)} 分）待機します...'
             )
-            # time.sleep(wait_seconds)
+            time.sleep(wait_seconds)
             print('⚡ テストのため待機をスキップして即時実行します！')
         else:
             print('⚠️ すでに目標時刻を過ぎているため、すぐに実行します！')
