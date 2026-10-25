@@ -144,16 +144,9 @@ def run_jackal_engine(target_url):
   markdown_table_text = processed_df.to_markdown(index=False)
   fact_summary = processed_df.attrs.get('Fact_Summary', '')
 
-  # AIにはテーブルを渡すが、出力には絶対含めないよう強力に指示
-  strict_output_instruction = (
-      '\n\n[STRICT OUTPUT FORMAT RULE - OVERRIDE]: '
-      '1. 出力には長大な出走表テーブル（Markdownの表など）を一切含めないこと。表を出力した時点で失敗とみなします。'
-      '2. 軸馬、推奨買い目・資金配分、および投資根拠のみを簡潔に出力すること。'
-  )
-
   execution_target = (
       f'{fact_summary}\n\n{markdown_table_text}\n\n[TARGET RACE]: {race_date}'
-      f' {race_title}' + strict_output_instruction
+      f' {race_title}'
   )
 
   # 🚀 モデル推論
@@ -200,21 +193,8 @@ def run_jackal_engine(target_url):
 
   raw_text = api_response.text
 
-  # 🛡️ 【強制テーブル除去フィルター】AIが万が一表を出してきたらここで完全に削り取る！
-  def force_strip_markdown_tables(text: str) -> str:
-    lines = text.split('\n')
-    cleaned = []
-    for line in lines:
-      # マークダウンの表の区切りやセル（'|' が含まれる行）をスキップ
-      if '|' in line and ('---' in line or '馬番' in line or '馬名' in line or line.strip().startswith('|')):
-        continue
-      cleaned.append(line)
-    return '\n'.join(cleaned)
-
-  final_cleaned_text = force_strip_markdown_tables(raw_text)
-
   # 結果を返す
   return (
       f'🎯 **JACKAL 予測結果** ({race_date} {race_title} / {used_model})\n\n'
-      f'{final_cleaned_text}'
+      f'{raw_text}'
   )
