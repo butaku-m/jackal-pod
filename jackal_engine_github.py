@@ -167,6 +167,8 @@ def run_jackal_engine(target_url):
       '各馬の能力・適性・展開・Model Prob・Fair Oddsを純粋なデータのみから算出してリストを確定させよ。'
   )
 
+  retry_keywords = ['503', '429', 'disconnected', 'Connection', 'timeout']
+
   for model_name in models_to_try:
     success = False
     for attempt in range(3):
@@ -186,8 +188,8 @@ def run_jackal_engine(target_url):
         break
       except Exception as e:
         print(f'⚠️ [Step 1] モデル [{model_name}] エラー (試行 {attempt + 1}): {e}')
-        if '503' in str(e) or '429' in str(e):
-          print('⏳ サーバー混雑のため、5秒後に再試行します...')
+        if any(kw in str(e) for kw in retry_keywords):
+          print('⏳ サーバー混雑・切断のため、5秒後に再試行します...')
           time.sleep(5)
         else:
           break
@@ -225,7 +227,8 @@ def run_jackal_engine(target_url):
       break
     except Exception as e:
       print(f'⚠️ [Step 2] エラー (試行 {attempt + 1}): {e}')
-      if '503' in str(e) or '429' in str(e):
+      if any(kw in str(e) for kw in retry_keywords):
+        print('⏳ サーバー混雑・切断のため、5秒後に再試行します...')
         time.sleep(5)
       else:
         break
