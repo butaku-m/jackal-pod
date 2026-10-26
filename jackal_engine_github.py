@@ -143,11 +143,12 @@ def run_jackal_engine(target_url):
   processed_df = pure_fact_preprocessing(raw_df)
   fact_summary = processed_df.attrs.get('Fact_Summary', '')
 
-  # 🚀 2段階分割モデル推論（Step 1: オッズ完全BLIND能力算出 ➔ Step 2: Market Layer照合・買い目構築）
+  # 🚀 4段階フォールバックモデルローテーション（3.8 ➔ 3.6 ➔ 3.5-lite ➔ 3.1-lite）
   models_to_try = [
       'gemini-3.8-flash',
       'gemini-3.6-flash',
       'gemini-3.5-flash-lite',
+      'gemini-3.1-flash-lite',
   ]
 
   step1_result = None
@@ -167,13 +168,11 @@ def run_jackal_engine(target_url):
       '各馬の能力・適性・展開・Model Prob・Fair Oddsを純粋なデータのみから算出してリストを確定させよ。'
   )
 
-  retry_keywords = ['503', '429', 'disconnected', 'Connection', 'timeout']
-
   for model_name in models_to_try:
     success = False
-    for attempt in range(3):
+    for attempt in range(2):
       try:
-        print(f'🔄 [Step 1] モデル [{model_name}] で能力・確率を算出中 (試行 {attempt + 1}/3)...')
+        print(f'🔄 [Step 1] モデル [{model_name}] で能力・確率を算出中 (試行 {attempt + 1}/2)...')
         response1 = client.models.generate_content(
             model=model_name,
             contents=(
@@ -187,17 +186,19 @@ def run_jackal_engine(target_url):
         success = True
         break
       except Exception as e:
-        print(f'⚠️ [Step 1] モデル [{model_name}] エラー (試行 {attempt + 1}): {e}')
-        if any(kw in str(e) for kw in retry_keywords):
-          print('⏳ サーバー混雑・切断のため、5秒後に再試行します...')
-          time.sleep(5)
+        print(f'⚠️ [Step 1] モデル [{model_name}] エラー: {e}')
+        if '429' in str(e):
+          print('🚨 429 Quota制限検知: 即座に次のモデルへフォールバックします...')
+          break
+        elif '503' in str(e) or 'disconnected' in str(e) or 'timeout' in str(e):
+          time.sleep(3)
         else:
           break
     if success:
       break
 
   if step1_result is None:
-    raise Exception('Step 1（能力・確率算出）の生成に失敗しました。')
+    raise Exception('Step 1（能力・確率算出）の全モデル生成に失敗しました（クォータ上限の可能性があります）。')
 
   # ==========================================
   # 🟢 STEP 2: 確定した確率とリアルタイムオッズの突合・買い目構築
@@ -213,28 +214,35 @@ def run_jackal_engine(target_url):
   )
 
   api_response = None
-  for attempt in range(3):
-    try:
-      print(f'🔄 [Step 2] モデル [{used_model}] でオッズ照合・買い目構築中 (試行 {attempt + 1}/3)...')
-      api_response = client.models.generate_content(
-          model=used_model,
-          contents=(
-              jackal_prompt_instruction
-              + '\n\n[STEP 2: MARKET LAYER & BETTING EXECUTION]\n'
-              + step2_target
-          ),
-      )
-      break
-    except Exception as e:
-      print(f'⚠️ [Step 2] エラー (試行 {attempt + 1}): {e}')
-      if any(kw in str(e) for kw in retry_keywords):
-        print('⏳ サーバー混雑・切断のため、5秒後に再試行します...')
-        time.sleep(5)
-      else:
+  for model_name in models_to_try:
+    success = False
+    for attempt in range(2):
+      try:
+        print(f'🔄 [Step 2] モデル [{model_name}] でオッズ照合・買い目構築中 (試行 {attempt + 1}/2)...')
+        api_response = client.models.generate_content(
+            model=model_name,
+            contents=(
+                jackal_prompt_instruction
+                + '\n\n[STEP 2: MARKET LAYER & BETTING EXECUTION]\n'
+                + step2_target
+            ),
+        )
+        success = True
         break
+      except Exception as e:
+        print(f'⚠️ [Step 2] モデル [{model_name}] エラー: {e}')
+        if '429' in str(e):
+          print('🚨 429 Quota制限検知: 即座に次のモデルへフォールバックします...')
+          break
+        elif '503' in str(e) or 'disconnected' in str(e) or 'timeout' in str(e):
+          time.sleep(3)
+        else:
+          break
+    if success:
+      break
 
   if api_response is None:
-    raise Exception('Step 2（買い目構築）の生成に失敗しました。')
+    raise Exception('Step 2（買い目構築）の全モデル生成に失敗しました。')
 
   final_text = api_response.text
 
