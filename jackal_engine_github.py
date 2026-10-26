@@ -141,60 +141,102 @@ def run_jackal_engine(target_url):
 
   raw_df = tables[0]
   processed_df = pure_fact_preprocessing(raw_df)
-  markdown_table_text = processed_df.to_markdown(index=False)
   fact_summary = processed_df.attrs.get('Fact_Summary', '')
 
-  execution_target = (
-      f'{fact_summary}\n\n{markdown_table_text}\n\n[TARGET RACE]: {race_date}'
-      f' {race_title}'
-  )
-
-  # 🚀 モデル推論
+  # 🚀 2段階分割モデル推論（Step 1: オッズ完全BLIND能力算出 ➔ Step 2: Market Layer照合・買い目構築）
   models_to_try = [
       'gemini-3.8-flash',
       'gemini-3.6-flash',
       'gemini-3.5-flash-lite',
   ]
 
-  api_response = None
+  step1_result = None
   used_model = ''
+
+  # ==========================================
+  # 🟢 STEP 1: オッズ完全非含有データでの能力・確率算出
+  # ==========================================
+  blind_df = processed_df.drop(
+      columns=[col for col in processed_df.columns if 'オッズ' in col or '人気' in col or '単勝' in col],
+      errors='ignore'
+  )
+  blind_table_text = blind_df.to_markdown(index=False)
+  step1_target = (
+      f'{fact_summary}\n\n{blind_table_text}\n\n[TARGET RACE]: {race_date} {race_title}\n\n'
+      '[INSTRUCTION]: これはSTEP 1（予測フェーズ）である。オッズ情報は一切存在しない。'
+      '各馬の能力・適性・展開・Model Prob・Fair Oddsを純粋なデータのみから算出してリストを確定させよ。'
+  )
 
   for model_name in models_to_try:
     success = False
     for attempt in range(3):
       try:
-        print(f'🔄 モデル [{model_name}] で推論中 (試行 {attempt + 1}/3)...')
-        api_response = client.models.generate_content(
+        print(f'🔄 [Step 1] モデル [{model_name}] で能力・確率を算出中 (試行 {attempt + 1}/3)...')
+        response1 = client.models.generate_content(
             model=model_name,
             contents=(
                 jackal_prompt_instruction
-                + '\n\n[TARGET & STRUCTURED PURE RAW FACT DATA SOURCE]\n'
-                + execution_target
+                + '\n\n[STEP 1: PREDICTION PHASE (ODDS BLIND)]\n'
+                + step1_target
             ),
         )
+        step1_result = response1.text
         used_model = model_name
         success = True
         break
       except Exception as e:
-        print(f'⚠️ モデル [{model_name}] エラー (試行 {attempt + 1}): {e}')
+        print(f'⚠️ [Step 1] モデル [{model_name}] エラー (試行 {attempt + 1}): {e}')
         if '503' in str(e) or '429' in str(e):
           print('⏳ サーバー混雑のため、5秒後に再試行します...')
           time.sleep(5)
         else:
           break
-
     if success:
       break
 
-  if api_response is None:
-    raise Exception(
-        'すべてのモデルでの生成に失敗しました（サーバー混雑の可能性があります）。'
-    )
+  if step1_result is None:
+    raise Exception('Step 1（能力・確率算出）の生成に失敗しました。')
 
-  raw_text = api_response.text
+  # ==========================================
+  # 🟢 STEP 2: 確定した確率とリアルタイムオッズの突合・買い目構築
+  # ==========================================
+  full_table_text = processed_df.to_markdown(index=False)
+  step2_target = (
+      f'{fact_summary}\n\n{full_table_text}\n\n[TARGET RACE]: {race_date} {race_title}\n\n'
+      f'[STEP 1 FIXED RESULT (PROBABILITY & BASE ANALYSIS)]:\n{step1_result}\n\n'
+      '[INSTRUCTION]: これはSTEP 2（市場レイヤー）である。'
+      'すでに確定したモデル確率と、上記の【最新オッズを含む全データ】を突合させよ。'
+      'Market Edge、Conservative EV、Pruning Filter、および鉄の掟（絶対的NO BET判定）を適用し、'
+      '指定されたスマホ対応リスト形式および最終フォーマットで結果を出力せよ。'
+  )
+
+  api_response = None
+  for attempt in range(3):
+    try:
+      print(f'🔄 [Step 2] モデル [{used_model}] でオッズ照合・買い目構築中 (試行 {attempt + 1}/3)...')
+      api_response = client.models.generate_content(
+          model=used_model,
+          contents=(
+              jackal_prompt_instruction
+              + '\n\n[STEP 2: MARKET LAYER & BETTING EXECUTION]\n'
+              + step2_target
+          ),
+      )
+      break
+    except Exception as e:
+      print(f'⚠️ [Step 2] エラー (試行 {attempt + 1}): {e}')
+      if '503' in str(e) or '429' in str(e):
+        time.sleep(5)
+      else:
+        break
+
+  if api_response is None:
+    raise Exception('Step 2（買い目構築）の生成に失敗しました。')
+
+  final_text = api_response.text
 
   # 結果を返す
   return (
-      f'🎯 **JACKAL 予測結果** ({race_date} {race_title} / {used_model})\n\n'
-      f'{raw_text}'
+      f'🎯 **JACKAL 予測結果** ({race_date} {race_title} / 2-Step Pipeline)\n\n'
+      f'{final_text}'
   )
