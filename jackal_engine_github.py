@@ -187,18 +187,18 @@ def run_jackal_engine(target_url):
         break
       except Exception as e:
         print(f'⚠️ [Step 1] モデル [{model_name}] エラー: {e}')
-        if '429' in str(e):
-          print('🚨 429 Quota制限検知: 即座に次のモデルへフォールバックします...')
+        # 429、接続切断、キャンセル、タイムアウト系のエラーなら即座に次のモデルへフォールバック
+        err_str = str(e)
+        if any(kw in err_str for kw in ['429', 'disconnected', 'Canceled', 'timeout', 'UNAVAILABLE']):
+          print(f'🚨 異常検知 ({model_name}): 即座に次のモデルへフォールバックします...')
           break
-        elif '503' in str(e) or 'disconnected' in str(e) or 'timeout' in str(e):
-          time.sleep(3)
         else:
-          break
+          time.sleep(3)
     if success:
       break
 
   if step1_result is None:
-    raise Exception('Step 1（能力・確率算出）の全モデル生成に失敗しました（クォータ上限の可能性があります）。')
+    raise Exception('Step 1（能力・確率算出）の全モデル生成に失敗しました。')
 
   # ==========================================
   # 🟢 STEP 2: 確定した確率とリアルタイムオッズの突合・買い目構築
@@ -231,13 +231,12 @@ def run_jackal_engine(target_url):
         break
       except Exception as e:
         print(f'⚠️ [Step 2] モデル [{model_name}] エラー: {e}')
-        if '429' in str(e):
-          print('🚨 429 Quota制限検知: 即座に次のモデルへフォールバックします...')
+        err_str = str(e)
+        if any(kw in err_str for kw in ['429', 'disconnected', 'Canceled', 'timeout', 'UNAVAILABLE']):
+          print(f'🚨 異常検知 ({model_name}): 即座に次のモデルへフォールバックします...')
           break
-        elif '503' in str(e) or 'disconnected' in str(e) or 'timeout' in str(e):
-          time.sleep(3)
         else:
-          break
+          time.sleep(3)
     if success:
       break
 
